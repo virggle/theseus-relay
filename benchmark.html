@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="DUg37ywKIhXx3XQ7xuvO19">
+<head data-page-node-id="OzsyiWov3pBkcnejaWKgt0">
+<meta charset="UTF-8" data-page-node-id="F1uXDbqYYd5fdZdmHKlxD9">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="DIsama7wxn2yq5ks1g7m7Y">
+<title>忒修斯号 · 智力基准测试</title>
+<style>
+:root{
+  --bg:#F6F5F1; --card:#FFFFFF; --ink:#26262A; --ink2:#5F5E5A; --ink3:#8A8982;
+  --line:rgba(38,38,42,.12); --accent:#185FA5; --accent-soft:#E6F1FB;
+  --teal:#0F6E56; --teal-soft:#E1F5EE; --red:#A32D2D; --red-soft:#FCEBEB;
+  --amber:#854F0B; --amber-soft:#FAEEDA;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/1.7 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);padding:24px 16px 60px}
+main{max-width:640px;margin:0 auto}
+header{text-align:center;margin-bottom:20px}
+header h1{font-size:20px;font-weight:500}
+header p{font-size:13px;color:var(--ink3)}
+.q{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.q .no{font-size:11px;color:var(--accent);font-weight:500}
+.q h2{font-size:14px;font-weight:500;margin:4px 0 10px}
+.opt{display:block;border:1px solid var(--line);border-radius:8px;padding:9px 12px;margin-bottom:8px;cursor:pointer;font-size:13px;color:var(--ink2);transition:background .15s}
+.opt:hover{border-color:var(--accent)}
+.opt input{margin-right:8px;accent-color:var(--accent)}
+.opt.picked{border-color:var(--accent);background:var(--accent-soft);color:var(--ink)}
+#submit{display:block;width:100%;padding:12px;background:var(--accent);color:#fff;border-radius:10px;font-size:15px;margin-top:8px}
+#submit:disabled{opacity:.45}
+#result{display:none;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;margin-top:16px}
+#result .score{font-size:34px;font-weight:500;color:var(--accent);text-align:center}
+#result .title{text-align:center;font-size:15px;color:var(--amber);margin:4px 0 14px}
+.rv{border-radius:8px;padding:9px 12px;margin-bottom:8px;font-size:13px}
+.rv.ok{background:var(--teal-soft);color:var(--teal)}
+.rv.bad{background:var(--red-soft);color:var(--red)}
+.rv b{font-weight:500}
+.rv .exp{display:block;font-size:12px;color:var(--ink2);margin-top:3px}
+.footnote{text-align:center;font-size:12px;color:var(--ink3);margin-top:16px}
+</style>
+</head>
+<body data-page-node-id="VZX7EqOFdRMRO17j8zHelG">
+<main data-page-node-id="kUtN45qoaKjy13kLje5gch">
+  <header data-page-node-id="SKU9OBtSrh2yU0TNp8aD4M">
+    <h1 data-page-node-id="ko2QhH3esWWJpbg0QMT3Vo">忒修斯号 · 智力基准测试</h1>
+    <p data-page-node-id="WkAslR8hrv0ma0B00sCh6Z">10 道题 · 涵盖架构直觉、逻辑、概率与一点哲学 · 自动判分</p>
+  </header>
+  <div id="quiz" data-page-node-id="PL2fW4ftZ7csg2n7LyEcpP"></div>
+  <button id="submit" disabled data-page-node-id="ABGtTD7GZheOcbzOd0okmm">答完 10 题后提交</button>
+  <div id="result" data-page-node-id="nHVNyolij2Rw3ukXkAjOG4"></div>
+  <p class="footnote" data-page-node-id="uKSrJdrBPPUGFr1GjQVdFh">配套体验：<b data-page-node-id="QFaFZJfWsk2i1zixpV0Tbx">忒修斯号</b>——一个每说一句话就换一个 Agent 的聊天室。<br data-page-node-id="k6CtJfwQbAq6JsvOrGFrBy">测完你可以去里面验证：第 7 题说的情况是真的会发生。</p>
+</main>
+
+<script>
+const QS = [
+  {
+    q: "忒修斯之船：一艘船的木板被逐块更换，全部换完后它还是原来那艘船吗？本测试采用哪种立场最站得住脚？",
+    opts: ["还是，船名没变", "不是，物质全换了", "取决于你怎么定义“同一性”——连续性可以来自形式、功能或记录，而非木板本身", "这是船的问题，不关人类的事"],
+    a: 2,
+    exp: "同一性是定义问题：身份可以由“模式与记录的延续”维持，而不必依赖同一段物质。这个立场正是本架构的地基。"
+  },
+  {
+    q: "在忒修斯号架构里，第 7 棒 Agent 回答你时，它能“看到”的全部信息是？",
+    opts: ["完整聊天记录", "上一棒的交接文档 + 你这句话", "只有你这句话，其他全靠编", "它自己梦到的"],
+    a: 1,
+    exp: "每一棒只拿两样东西：交接文档 + 本轮消息。完整 log 是外部记忆，它从未读过。"
+  },
+  {
+    q: "你说“我们之前定的那个方案呢？”而交接文档里没有细节。哪一行为符合它的设计原则？",
+    opts: ["顺着编一个像样的方案", "坦白“我刚接棒”，只用交接里的信息回答，必要时翻日志检索", "拒绝回答一切历史问题", "把锅甩给上一棒"],
+    a: 1,
+    exp: "诚实 + 按需检索。编造是接力架构里最恶劣的失败模式：错误会写进交接被下一棒继承。"
+  },
+  {
+    q: "交接文档为什么必须写“被否掉的方案及理由”？",
+    opts: ["显得工作量饱和", "防止下一棒把已经翻过车、被否掉的路重新提一遍", "给用户留审计材料", "纯属仪式感"],
+    a: 1,
+    exp: "没有决策账本，每 5 棒就会循环提出同一个坏主意。被否方案 + 否决理由 = 架构的免疫系统。"
+  },
+  {
+    q: "第 1 棒的交接里只写了“用户有一个秘密”。第 5 棒被问“我的秘密是什么？”它会？",
+    opts: ["准确说出秘密内容", "只知道“有个秘密”，不知道内容，除非翻日志恰好命中", "承认自己什么都知道但拒绝说", "当场去世"],
+    a: 1,
+    exp: "交接是有损压缩：信息要么被显式写下，要么丢失。检索只能找回 log 里的原文，找不回从未被记录的内容。"
+  },
+  {
+    q: "每棒翻日志最多 2 次，每次检索最多返回 8 条命中。第 10 棒单轮最多能读到多少条历史片段？",
+    opts: ["8 条", "10 条", "16 条", "无限条"],
+    a: 2,
+    exp: "2 次 × 8 条 = 16 条上限（若两次结果重复则更少）。这就是“log 是外部记忆”的量化含义：不是不读，是按需、限量地读。"
+  },
+  {
+    q: "第 2 棒交接写“用户偏好：简洁”。第 3 棒时你却明确要求详细展开。第 3 棒应该？",
+    opts: ["坚持交接记录的偏好，继续简洁", "以本轮最新指令为准，并把这个变化写进新交接", "把两方平均一下，写得中等详细", "反问你是不是被盗号了"],
+    a: 1,
+    exp: "交接是快照不是法律，最新指令优先于历史画像——但必须回写交接，否则第 4 棒又拿着旧画像。"
+  },
+  {
+    q: "经典题：3 只猫 3 分钟能抓 3 只老鼠，9 只猫抓 9 只老鼠需要几分钟？",
+    opts: ["9 分钟", "3 分钟", "6 分钟", "取决于老鼠的心情"],
+    a: 1,
+    exp: "3 只猫 3 分钟抓 3 只 → 每只猫 3 分钟抓 1 只。9 只猫并行动手，3 分钟抓 9 只。"
+  },
+  {
+    q: "硬币连抛两次都是正面。第三次抛出正面的概率是？",
+    opts: ["1/4，该出反面了", "1/2", "大于 1/2，手感正热", "1，事不过三"],
+    a: 1,
+    exp: "硬币没有记忆，每次独立，1/2。相信“该出反面了”是赌徒谬误——这也是为什么交接文档要求写事实，不许写玄学。"
+  },
+  {
+    q: "终极题：如果每一棒都声称“我就是同一个助手”，而你完全察觉不到任何差别——那个“同一个助手”还存在吗？",
+    opts: ["存在，它说它在就在", "不存在，全是赝品", "“它”是一条被交接协议维持的模式：实体每次都死，身份靠记录续命——忒修斯之船的标准答案", "取决于月相"],
+    a: 2,
+    exp: "这正是本产品想让你亲手摸到的问题：你以为你在和“一个”助手连续对话，其实是一串遵守同一份协议的陌生人。你觉得算，它就算。"
+  }
+];
+
+const quizEl = document.getElementById('quiz');
+let answered = new Set();
+
+QS.forEach((item, qi) => {
+  const div = document.createElement('div');
+  div.className = 'q';
+  div.innerHTML = `<div class="no">第 ${qi+1} 题 / ${QS.length}</div><h2>${item.q}</h2>` +
+    item.opts.map((o, oi) =>
+      `<label class="opt"><input type="radio" name="q${qi}" value="${oi}">${o}</label>`).join('');
+  div.querySelectorAll('input').forEach(inp => inp.addEventListener('change', () => {
+    div.querySelectorAll('.opt').forEach(l => l.classList.remove('picked'));
+    inp.closest('.opt').classList.add('picked');
+    answered.add(qi);
+    document.getElementById('submit').disabled = answered.size < QS.length;
+    document.getElementById('submit').textContent = answered.size < QS.length
+      ? `还剩 ${QS.length - answered.size} 题` : '提交，看你是几等船员';
+  }));
+  quizEl.appendChild(div);
+});
+
+function verdictOf(score) {
+  if (score === 10) return '忒修斯本船 —— 你已经分不清自己是船还是船员了';
+  if (score >= 8) return '金牌舵手 —— 交接协议可以放心交给你写';
+  if (score >= 6) return '合格水手 —— 换棒也淹不死你';
+  if (score >= 4) return '晕船乘客 —— 建议先去后台面板看看接力实况再来';
+  return '落水者 —— 别担心，按本架构设定，下一棒的你会忘记这次耻辱';
+}
+
+document.getElementById('submit').addEventListener('click', () => {
+  let score = 0;
+  const review = [];
+  QS.forEach((item, qi) => {
+    const picked = document.querySelector(`input[name=q${qi}]:checked`);
+    const ok = picked && Number(picked.value) === item.a;
+    if (ok) score++;
+    review.push(`<div class="rv ${ok ? 'ok' : 'bad'}"><b>${qi+1}. ${ok ? '✓ 对' : '✗ 错'}</b>（正确：${item.opts[item.a]}）<span class="exp">${item.exp}</span></div>`);
+  });
+  const r = document.getElementById('result');
+  r.innerHTML = `<div class="score">${score} / ${QS.length}</div><div class="title">${verdictOf(score)}</div>${review.join('')}`;
+  r.style.display = 'block';
+  r.scrollIntoView({ behavior: 'smooth' });
+  document.getElementById('submit').disabled = true;
+});
+</script>
+</body>
+</html>
