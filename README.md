@@ -6,11 +6,12 @@
 
 一个把「忒修斯之船」架构做成可玩体验的聊天应用：对话界面看起来是连续的，但后台每个 Agent 只活一轮，回答完留下结构化简报就离场，下一棒带着简报 + 你的最新消息上场。
 
-**它的意义不在聊天，而在协议。** 无状态工人 + 有状态协议 = 有界成本、天然审计、棒级故障隔离、结构无偏见的审查者——这些是长成 harness 的种子。见 [docs/PROTOCOL.md](docs/PROTOCOL.md)（接力协议规范）、[docs/ROADMAP.md](docs/ROADMAP.md)（chatbox → harness 演进路线）与 [docs/POSITIONING.md](docs/POSITIONING.md)（与 Ralph Loop 等近亲架构的边界）。
+**它的意义不在聊天，而在协议。** 无状态工人 + 有状态协议，同时兑现六条价值轨道——成本有界、新鲜上下文、天然审计、棒级事务、跨模型调度、跨会话记忆——这些是长成 harness 的种子。见 [docs/PURPOSES.md](docs/PURPOSES.md)（六条价值轨道与证明指标）、[docs/PROTOCOL.md](docs/PROTOCOL.md)（接力协议规范）、[docs/ROADMAP.md](docs/ROADMAP.md)（chatbox → harness 演进路线）与 [docs/POSITIONING.md](docs/POSITIONING.md)（与 Ralph Loop 等近亲架构的边界）。
 
 ## 它演示什么
 
-- **有界上下文**：每个 Agent 的输入恒定 = 一份简报 + 一条消息，token 成本不随对话长度增长
+- **六条并行价值轨道**：同一份协议的六种读法——P1 成本、P2 稳定性、P3 审计、P4 事务、P5 调度、P6 持久化（见 [docs/PURPOSES.md](docs/PURPOSES.md)）
+- **有界上下文**：每个 Agent 的输入恒定 = 一份简报 + 一条消息，token 成本不随对话长度增长——P1 轨道的机制基础
 - **简报协议**：累积压缩（不是本轮纪要）、决策账本只增不删、严禁占位符、有损预算与丢弃优先级
 - **日志即外部记忆**：完整对话 log 只对用户可见；Agent 默认不读，确有必要时用「翻日志」按需检索（每棒限 2 次）
 - **可审计换棒**：后台面板展示每一棒的简报、它读到的完整输入、翻日志行为、降级与抢救标记

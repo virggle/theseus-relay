@@ -6,11 +6,12 @@
 
 A chat application that turns the "Ship of Theseus" architecture into a playable experience: the conversation looks continuous, but behind the scenes each agent lives for exactly one turn — it answers, leaves behind a structured brief, and exits. The next baton enters with that brief plus your latest message.
 
-**The point is not the chat. The point is the protocol.** Stateless workers + a stateful protocol = bounded cost, audits by construction, per-baton fault isolation, and a structurally unbiased reviewer — the seeds of a harness. See [docs/PROTOCOL.en.md](docs/PROTOCOL.en.md) (the relay protocol spec), [docs/ROADMAP.en.md](docs/ROADMAP.en.md) (the chatbox → harness evolution path), and [docs/POSITIONING.en.md](docs/POSITIONING.en.md) (boundaries against Ralph Loop and other kindred architectures).
+**The point is not the chat. The point is the protocol.** Stateless workers + a stateful protocol deliver six value tracks at once — bounded cost, fresh context, audits by construction, baton-level transactions, cross-model scheduling, cross-session memory — the seeds of a harness. See [docs/PURPOSES.en.md](docs/PURPOSES.en.md) (the six value tracks and their proof metrics), [docs/PROTOCOL.en.md](docs/PROTOCOL.en.md) (the relay protocol spec), [docs/ROADMAP.en.md](docs/ROADMAP.en.md) (the chatbox → harness evolution path), and [docs/POSITIONING.en.md](docs/POSITIONING.en.md) (boundaries against Ralph Loop and other kindred architectures).
 
 ## What it demonstrates
 
-- **Bounded context**: each agent's input is constant = one brief + one message; token cost does not grow with conversation length
+- **Six parallel value tracks**: six readings of one protocol — P1 cost, P2 stability, P3 audit, P4 transactions, P5 scheduling, P6 persistence (see [docs/PURPOSES.en.md](docs/PURPOSES.en.md))
+- **Bounded context**: each agent's input is constant = one brief + one message; token cost does not grow with conversation length — the mechanical basis of track P1
 - **The brief protocol**: cumulative compression (not a per-turn recap), an append-only decision ledger, placeholders strictly forbidden, a lossy budget with discard priorities
 - **Logs as external memory**: the full conversation log is visible only to the user; agents don't read it by default and may consult it via bounded retrieval when truly necessary (max 2 lookups per baton)
 - **Auditable handoffs**: the backstage panel shows each baton's brief, its complete input, its log-lookup behavior, and any degradation or salvage markers
