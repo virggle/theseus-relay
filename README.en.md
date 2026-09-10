@@ -41,6 +41,7 @@ LLM_BASE_URL=http://localhost:5051 LLM_API_KEY=mock LLM_MODEL=mock npm start
 
 ```
 server.js          zero-dependency HTTP server (session storage + API)
+src/validate.js    substrate validator (v0.1.1): five mechanical checks; fail means reject and re-dispatch
 src/relay.js       the relay engine: brief construction, log retrieval, JSON protocol parsing with salvage fallback
 src/llmAdapter.js  OpenAI-compatible adapter (retry + timeout)
 public/index.html  chat UI + backstage relay panel

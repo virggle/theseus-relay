@@ -42,6 +42,7 @@ LLM_BASE_URL=http://localhost:5051 LLM_API_KEY=mock LLM_MODEL=mock npm start
 ```
 server.js          零依赖 HTTP 服务器（会话存储 + API）
 src/relay.js       接力引擎：简报构建、翻日志检索、JSON 协议解析与抢救兜底
+src/validate.js    基底校验器（v0.1.1）：五项机械校验，不过则拒收重派
 src/llmAdapter.js  OpenAI 兼容适配层（重试 + 超时）
 public/index.html  聊天界面 + 后台接力实况面板
 TESTS.md           协议一致性测试集（行为探针 + 真题四步脚本）

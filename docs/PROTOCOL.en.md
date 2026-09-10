@@ -58,6 +58,8 @@ Prompt constraints are the first line of defense, not the only one. The substrat
 | Decisions append-only | Diff against the previous brief: item counts in Decisions and User profile must not decrease |
 | Pointers valid | Persistence pointers produced under Invariant 4 must reference substrate paths that actually exist |
 
+**Implemented (v0.1.1)**: `src/validate.js` turns the five checks above into the pure function `validateHandoff(brief, { prevHandoff, exists })` — no IO except the pointer check — returning `{ ok, errors[], checks }`. Two definitions are fixed here: length = non-whitespace character count ≤ 800; pointer syntax = `-> relative/path` (currently a conditional check: no pointer in the brief means pass; it becomes active once v0.3 persistence rules land).
+
 Principle: **any rule that can live in the substrate does not stay in the prompt.** Models cheat (§8's field-tested traps are all documented model cheating); scripts don't. The validator is also the commit condition of baton-level transactions — a brief that fails validation effectively never existed.
 
 ## 5. External Memory Retrieval (Log-as-Memory)

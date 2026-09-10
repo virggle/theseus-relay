@@ -15,13 +15,15 @@
 
 **Verified properties**: bounded context (constant cost), baton-level fault isolation, identity continuity guaranteed by protocol.
 
-## v0.1.1 Substrate validator (next minimal increment)
+## v0.1.1 Substrate validator (implemented)
 
 > Tracks served: P4 Transactions · P3 Audit
 
 Move the five mechanical checks of PROTOCOL §4 from paper into code: four sections present, no placeholders, within budget, decisions append-only, pointers valid. Fail → reject and re-dispatch (§6).
 
 Why it comes before tool batons: **the field-tested traps — anti-placeholder, anti-procrastination — are currently enforced purely by prompt constraints (model self-discipline)**. The validator is the first "substrate is more reliable than the model" component: dirt cheap (pure regex + diff), yet it turns brief quality from a probability problem into a determinism problem — baton-level transactions, quality gates, and protocol independence all build on its existence.
+
+**Status**: shipped — `src/validate.js` (five pure-function checks) → `relay.js` reject-and-re-dispatch (once per baton; a second failure falls back to a summary call and marks `rejected`) → validation errors surfaced in the panel → `npm test` (node:test, 13 cases). For the key-less drill see TESTS.md §C.
 
 > **v0.1.2–v0.1.7 form the measurement & multi-purpose layer**: no hard dependency on v0.2 tool batons — they can interleave. Each stops independently at "minimally runnable". The only ordering constraint: v0.1.5's L0 pointer form depends on v0.3's persistence rules; until then L0 degrades to a hard-compression tier.
 

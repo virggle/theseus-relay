@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "mock": "node scripts/mock-llm.js"
+    "mock": "node scripts/mock-llm.js",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=18"

@@ -4,8 +4,10 @@
 // 2. 新棒的全部输入 = 上一棒的交接文档 + 用户本轮消息，仅此两样。
 // 3. 完整对话 log 只是外部记忆：Agent 默认不读，仅可通过「翻日志」动作按需检索。
 // 4. 每棒回答完必须留下结构化交接文档，然后"销毁"。
+// 5. 简报必须过基底机械校验（v0.1.1）：不过则拒收重派，再不过走兜底摘要。
 
 import { chatCompletion } from './llmAdapter.js';
+import { validateHandoff, BRIEF_BUDGET } from './validate.js';
 
 // ---------- log 检索（朴素关键词打分，零依赖） ----------
 
@@ -47,7 +49,7 @@ const HANDOFF_FORMAT = `## 进展
 到目前为止发生了什么、当前状态（含跨轮未完成事项）
 ## 决策
 已确定的结论、被否掉的方案（含理由）——逐条列出，下一棒不许推翻已定决策
-## 用户画像与偏好
+## 用户画像
 沟通风格、背景、在意什么
 ## 开放问题
 悬而未决、下一棒需要留意的`;
@@ -67,7 +69,9 @@ function buildSystemPrompt(agentId, prevHandoff) {
 - 回答完必须更新简报（handoff 字段）：把上一份简报中仍相关的内容压缩保留，融入本轮新信息——下一任助手只能看到这份文档，看不到本轮对话。
 - 简报「决策」一节只增不删：已确定的结论、被否掉的方案及理由，一条都不许丢。
 - 严禁元注释和占位符：不许写「（保留全部旧结论）」「同上」「略」这类缩写——下一任助手看不到旧简报的原文，占位符等于销毁信息。「决策」与「用户画像」必须逐条完整写出，哪怕与上一份简报一字不差。
-- 「用户画像与偏好」合并更新；「开放问题」清旧加新；总长 800 字以内，优先级：决策与约束 > 用户画像 > 开放问题 > 进展细节。
+- 「用户画像」合并更新；「开放问题」清旧加新；总长 ${BRIEF_BUDGET} 字以内，优先级：决策与约束 > 用户画像 > 开放问题 > 进展细节。
+
+你的简报会被基底机械校验（不是人看，是脚本判）：四节齐全、无占位符、${BRIEF_BUDGET} 字内、决策与用户画像条目不得比上一份少。校验不过会被拒收并要求你重发，所以一次写对更省事。
 
 ${prev}
 
@@ -83,6 +87,15 @@ ${HANDOFF_FORMAT}
 要求：reply 用简体中文，自然、有人味；handoff 客观精炼，事实性陈述。只输出一个 JSON 对象。
 
 【重要】reply 与 handoff 必须在本轮一次输出完整。绝不要对用户说「稍后给你」「马上给你一版」「先到这里」之类的拖延话术，也不要在 handoff 里记「重写尚未输出」——本轮能答就答完，篇幅不够时精炼内容，而不是中断承诺。`;
+}
+
+// 简报被基底拒收时，把校验错误原样回灌给该棒（PROTOCOL §6：带校验错误重派一次）
+function rejectionMessage(v) {
+  return (
+    `[系统·简报校验未通过] 基底机械校验拒收了你的 handoff：\n` +
+    v.errors.map((e) => `- ${e.msg}`).join('\n') +
+    `\n\n请修正后重新输出完整 JSON（reply 内容保持不变，只重写 handoff）：\n{"reply":"…","handoff":"…"}`
+  );
 }
 
 // ---------- 辅助：从模型输出抠 JSON ----------
@@ -107,7 +120,7 @@ async function fallbackHandoff(cfg, userMsg, reply, prevHandoff) {
     messages: [
       {
         role: 'system',
-        content: `你在为下一任助手更新《工作简报》。核心规则：简报是"已知信息的累积压缩"，不是本轮纪要——把上一份简报中仍相关的内容压缩保留，再融入本轮新信息；决策账本只增不删。格式：\n${HANDOFF_FORMAT}\n总长 800 字以内。只输出文档本身。`,
+        content: `你在为下一任助手更新《工作简报》。核心规则：简报是"已知信息的累积压缩"，不是本轮纪要——把上一份简报中仍相关的内容压缩保留，再融入本轮新信息；决策账本只增不删。格式：\n${HANDOFF_FORMAT}\n总长 ${BRIEF_BUDGET} 字以内。只输出文档本身。`,
       },
       {
         role: 'user',
@@ -150,7 +163,7 @@ function unescapeText(s) {
 // ---------- 单轮接力 ----------
 
 // session: { sid, log: [{ts, role, agentId, text}], handoff, agentCount }
-// 返回: { agentId, reply, handoff, logQueries, degraded }
+// 返回: { agentId, reply, handoff, logQueries, degraded, rejected, validation }
 export async function runTurn({ session, message, cfg }) {
   const agentId = session.agentCount + 1;
   const prevHandoff = session.handoff || '';
@@ -160,6 +173,8 @@ export async function runTurn({ session, message, cfg }) {
     { role: 'system', content: buildSystemPrompt(agentId, prevHandoff) },
     { role: 'user', content: message },
   ];
+
+  let briefRetried = false;
 
   for (let i = 0; i < 3; i++) {
     const raw = await chatCompletion({
@@ -187,37 +202,52 @@ export async function runTurn({ session, message, cfg }) {
       continue;
     }
 
-    // 正常回答
+    // 正常回答：reply 有了，简报还要过基底校验
     if (parsed && typeof parsed.reply === 'string' && parsed.reply.trim()) {
+      const reply = unescapeText(parsed.reply);
+      const brief = (parsed.handoff && String(parsed.handoff).trim())
+        ? String(parsed.handoff)
+        : await fallbackHandoff(cfg, message, reply, prevHandoff);
+
+      const v = validateHandoff(brief, { prevHandoff });
+      if (v.ok) {
+        return { agentId, reply, handoff: unescapeText(brief), logQueries, degraded: false, rejected: false, validation: { ok: true, errors: [] } };
+      }
+
+      // 拒收 → 带校验错误重派一次（§6）
+      if (!briefRetried) {
+        briefRetried = true;
+        messages.push({ role: 'assistant', content: raw });
+        messages.push({ role: 'user', content: rejectionMessage(v) });
+        continue;
+      }
+
+      // 再不过 → 独立摘要调用兜底，并标记为 rejected
+      const fb = await fallbackHandoff(cfg, message, reply, prevHandoff);
       return {
         agentId,
-        reply: unescapeText(parsed.reply),
-        handoff: unescapeText((parsed.handoff && String(parsed.handoff)) || (await fallbackHandoff(cfg, message, parsed.reply, prevHandoff))),
+        reply,
+        handoff: unescapeText(fb),
         logQueries,
-        degraded: false,
+        degraded: true,
+        rejected: true,
+        validation: validateHandoff(fb, { prevHandoff }),
       };
     }
 
     // 模型没按格式来：先尝试从坏 JSON 里抢救 reply，实在不行才整段兜底
     const salvaged = salvageReply(raw);
-    if (salvaged) {
-      return {
-        agentId,
-        reply: unescapeText(salvaged),
-        handoff: unescapeText(await fallbackHandoff(cfg, message, salvaged, prevHandoff)),
-        logQueries,
-        degraded: true,
-        salvaged: true,
-      };
-    }
-    const reply = raw.trim();
+    const reply = salvaged != null ? unescapeText(salvaged) : unescapeText(raw.trim());
     if (!reply) throw new Error('模型返回为空');
+    const fb = await fallbackHandoff(cfg, message, reply, prevHandoff);
     return {
       agentId,
-      reply: unescapeText(reply),
-      handoff: unescapeText(await fallbackHandoff(cfg, message, reply, prevHandoff)),
+      reply,
+      handoff: unescapeText(fb),
       logQueries,
       degraded: true,
+      rejected: false,
+      validation: validateHandoff(fb, { prevHandoff }),
     };
   }
 

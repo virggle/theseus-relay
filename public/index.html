@@ -234,7 +234,7 @@ function renderBackstage() {
       ${qHtml}
       <details class="bs-detail"><summary>看它留下的工作简报（下一棒的全部世界）</summary><div class="bs-pre">${fmt(b.handoff || '（第一棒）')}</div></details>
       <details class="bs-detail"><summary>看它读到的完整输入</summary><div class="bs-pre">【用户消息】\n${esc(b.userMessage)}\n\n【工作简报】\n${fmt(b.prevHandoff || '（无，第一棒）')}</div></details>
-      ${b.degraded ? '<div class="bs-meta">⚠ 本棒格式降级，简报为兜底生成</div>' : ''}${b.salvaged ? '<div class="bs-meta">⚠ 本棒输出截断，正文已自动抢救</div>' : ''}`;
+      ${b.rejected ? '<div class="bs-meta">⛔ 简报未过基底校验（已重派，仍不过则兜底重写）：' + esc((b.validation && b.validation.errors || []).map(e => e.msg).join('；') || '未知原因') + '</div>' : ''}${b.degraded ? '<div class="bs-meta">⚠ 本棒格式降级，简报为兜底生成</div>' : ''}${b.salvaged ? '<div class="bs-meta">⚠ 本棒输出截断，正文已自动抢救</div>' : ''}`;
     list.appendChild(card);
   }
 }
@@ -277,6 +277,7 @@ async function sendTurn(text) {
     let extra = '';
     for (const q of data.logQueries || []) extra += `<span class="chip">翻日志：「${esc(q.query)}」命中 ${q.hits.length} 条</span>`;
     if (data.degraded) extra += '<span class="chip warn">本棒输出降级</span>';
+    if (data.rejected) extra += '<span class="chip warn">简报未过基底校验：' + esc((data.validation && data.validation.errors || []).map(e => e.msg).join('；') || '未知原因') + '</span>';
     if (data.salvaged) extra += '<span class="chip warn">输出截断，已自动抢救正文</span>';
     const respMode = data.mode || 'relay';
     logEl.appendChild(renderMsg('bot', data.agentId, data.reply, extra, respMode));

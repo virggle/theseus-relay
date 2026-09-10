@@ -211,6 +211,8 @@ const server = http.createServer(async (req, res) => {
         lastReply: result.reply,
         logQueries: result.logQueries,
         degraded: result.degraded,
+        rejected: !!result.rejected,
+        validation: result.validation || null,
         salvaged: !!result.salvaged,
       });
       persist(s);
@@ -220,6 +222,8 @@ const server = http.createServer(async (req, res) => {
         reply: result.reply,
         logQueries: result.logQueries,
         degraded: result.degraded,
+        rejected: !!result.rejected,
+        validation: result.validation || null,
         salvaged: !!result.salvaged,
         keySource: resolved.source,
       });

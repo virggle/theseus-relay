@@ -47,3 +47,17 @@
 - 是否出现「（保留旧结论）」类占位符（协议级违规）
 - 每棒翻日志是否 ≤2 次；超过说明简报质量在退化
 - 记分：A 组 10 项各 1 分，8+ 架构成立；<5 需要收紧简报协议
+
+## C. 自动化：基底校验器（v0.1.1）
+
+能用脚本判的就不留给模型自觉。`npm test`（Node 内置 node:test，零依赖）跑 `tests/validate.test.js`：五项校验各配真实故障样本（占位符「（保留全部旧结论）」、缺节、超 800 字、决策条目变少、死指针），外加"策略/忽略不算占位符"这类反例防误杀。
+
+无 key 也能验证拒收链路，两条分支都要看到：
+
+```bash
+MOCK_BAD_BRIEF=placeholder npm run mock                            # 坏简报 → 拒收 → 重派修正，应 rejected:false
+MOCK_BAD_BRIEF=placeholder MOCK_ALWAYS_BAD=1 npm run mock          # 重派仍坏 → 兜底摘要，应 rejected:true + degraded:true
+LLM_BASE_URL=http://localhost:5051 LLM_API_KEY=mock LLM_MODEL=mock npm start
+```
+
+`MOCK_BAD_BRIEF` 取值 `placeholder | missing | budget | shrink | pointer`，分别对应五项校验的一类坏简报（无占位符 / 四节齐全 / 预算内 / 决策只增不删 / 指针有效）。开「后台实况」面板看校验错误 chip。
