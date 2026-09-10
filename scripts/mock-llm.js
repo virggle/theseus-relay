@@ -67,7 +67,11 @@ const server = http.createServer((req, res) => {
     }
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ choices: [{ message: { content } }] }));
+    // 带上 usage，让遥测/成本面板在无 key 联调时也有真实 token 数可看
+    res.end(JSON.stringify({
+      choices: [{ message: { content } }],
+      usage: { prompt_tokens: 220, completion_tokens: 90 },
+    }));
   });
 });
 

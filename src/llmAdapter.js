@@ -134,17 +134,26 @@ export async function chatCompletion({
   if (content == null) {
     throw new Error(`LLM 返回为空：${JSON.stringify(data).slice(0, 300)}`);
   }
-  return content;
+  // usage 用于遥测（v0.1.2）。端点不给就算 null，由上层按字符估算并标记 estimated。
+  const u = data?.usage || {};
+  const usage = {
+    input: Number.isFinite(u.prompt_tokens) ? u.prompt_tokens : null,
+    output: Number.isFinite(u.completion_tokens) ? u.completion_tokens : null,
+    cached: Number.isFinite(u.prompt_tokens_details?.cached_tokens)
+      ? u.prompt_tokens_details.cached_tokens
+      : Number.isFinite(u.prompt_cache_hit_tokens) ? u.prompt_cache_hit_tokens : 0,
+  };
+  return { content, usage };
 }
 
 // 轻量连通性测试（快速失败：不深度重试，避免挂到代理超时）
 export async function testConnection(llmConfig, opts = {}) {
-  const out = await chatCompletion({
+  const { content } = await chatCompletion({
     ...llmConfig,
     maxTokens: 16,
     messages: [{ role: 'user', content: '只回复：ok' }],
     timeoutMs: opts.timeoutMs ?? 20000,
     maxRetries: opts.maxRetries ?? 1,
   });
-  return out.trim();
+  return content.trim();
 }

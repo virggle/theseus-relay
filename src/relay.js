@@ -5,9 +5,11 @@
 // 3. 完整对话 log 只是外部记忆：Agent 默认不读，仅可通过「翻日志」动作按需检索。
 // 4. 每棒回答完必须留下结构化交接文档，然后"销毁"。
 // 5. 简报必须过基底机械校验（v0.1.1）：不过则拒收重派，再不过走兜底摘要。
+// 6. 每棒的调用全程记账（v0.1.2）：token、延迟、重派与抢救事件，落会话存储喂成本面板。
 
 import { chatCompletion } from './llmAdapter.js';
 import { validateHandoff, BRIEF_BUDGET } from './validate.js';
+import { estimateTokens, estimateMessagesTokens } from './pricing.js';
 
 // ---------- log 检索（朴素关键词打分，零依赖） ----------
 
@@ -98,6 +100,40 @@ function rejectionMessage(v) {
   );
 }
 
+// ---------- 遥测：每次 LLM 调用都记账 ----------
+
+// purpose: turn（主回答，含翻日志那一次试探）| repair（拒收后重派）| fallback（兜底摘要）
+// 端点不回 usage 时按字符估算，并标记 estimated —— 面板必须说清哪些数是估的。
+async function callLLM(cfg, messages, purpose, opts = {}) {
+  const t0 = Date.now();
+  const { content, usage } = await chatCompletion({
+    ...cfg,
+    temperature: opts.temperature ?? cfg.temperature ?? 0.7,
+    maxTokens: opts.maxTokens ?? cfg.maxTokens ?? 3000,
+    messages,
+  });
+  return {
+    content,
+    call: {
+      purpose,
+      latencyMs: Date.now() - t0,
+      input: usage.input ?? estimateMessagesTokens(messages),
+      output: usage.output ?? estimateTokens(content),
+      cached: usage.cached || 0,
+      estimated: usage.input == null || usage.output == null,
+    },
+  };
+}
+
+function sumCalls(calls) {
+  return {
+    inputTokens: calls.reduce((n, c) => n + c.input, 0),
+    outputTokens: calls.reduce((n, c) => n + c.output, 0),
+    latencyMs: calls.reduce((n, c) => n + c.latencyMs, 0),
+    estimated: calls.some((c) => c.estimated),
+  };
+}
+
 // ---------- 辅助：从模型输出抠 JSON ----------
 
 function extractJSON(raw) {
@@ -112,23 +148,20 @@ function extractJSON(raw) {
 }
 
 // JSON 解析失败的兜底：单独一次调用生成交接文档
-async function fallbackHandoff(cfg, userMsg, reply, prevHandoff) {
-  const out = await chatCompletion({
-    ...cfg,
-    temperature: 0.3,
-    maxTokens: 600,
-    messages: [
-      {
-        role: 'system',
-        content: `你在为下一任助手更新《工作简报》。核心规则：简报是"已知信息的累积压缩"，不是本轮纪要——把上一份简报中仍相关的内容压缩保留，再融入本轮新信息；决策账本只增不删。格式：\n${HANDOFF_FORMAT}\n总长 ${BRIEF_BUDGET} 字以内。只输出文档本身。`,
-      },
-      {
-        role: 'user',
-        content: `【上一棒交接（已含此前所有轮次的压缩信息）】\n${prevHandoff || '（无，本轮是第一棒）'}\n\n【本轮用户消息】\n${userMsg}\n\n【本轮助手回复】\n${reply}\n\n请写出留给下一棒的交接文档：覆盖上一棒交接中的重要内容 + 本轮新增。`,
-      },
-    ],
-  });
-  return out.trim();
+async function fallbackHandoff(cfg, userMsg, reply, prevHandoff, calls) {
+  const messages = [
+    {
+      role: 'system',
+      content: `你在为下一任助手更新《工作简报》。核心规则：简报是"已知信息的累积压缩"，不是本轮纪要——把上一份简报中仍相关的内容压缩保留，再融入本轮新信息；决策账本只增不删。格式：\n${HANDOFF_FORMAT}\n总长 ${BRIEF_BUDGET} 字以内。只输出文档本身。`,
+    },
+    {
+      role: 'user',
+      content: `【上一棒交接（已含此前所有轮次的压缩信息）】\n${prevHandoff || '（无，本轮是第一棒）'}\n\n【本轮用户消息】\n${userMsg}\n\n【本轮助手回复】\n${reply}\n\n请写出留给下一棒的交接文档：覆盖上一棒交接中的重要内容 + 本轮新增。`,
+    },
+  ];
+  const { content, call } = await callLLM(cfg, messages, 'fallback', { temperature: 0.3, maxTokens: 600 });
+  calls.push(call);
+  return content.trim();
 }
 
 // 从损坏/截断的 JSON 中抢救 reply 字段
@@ -163,11 +196,12 @@ function unescapeText(s) {
 // ---------- 单轮接力 ----------
 
 // session: { sid, log: [{ts, role, agentId, text}], handoff, agentCount }
-// 返回: { agentId, reply, handoff, logQueries, degraded, rejected, validation }
+// 返回: { agentId, reply, handoff, logQueries, degraded, rejected, validation, telemetry }
 export async function runTurn({ session, message, cfg }) {
   const agentId = session.agentCount + 1;
   const prevHandoff = session.handoff || '';
   const logQueries = [];
+  const calls = [];
 
   const messages = [
     { role: 'system', content: buildSystemPrompt(agentId, prevHandoff) },
@@ -177,12 +211,8 @@ export async function runTurn({ session, message, cfg }) {
   let briefRetried = false;
 
   for (let i = 0; i < 3; i++) {
-    const raw = await chatCompletion({
-      ...cfg,
-      temperature: cfg.temperature ?? 0.7,
-      maxTokens: cfg.maxTokens ?? 3000, // reply + 四节简报同在一个 JSON，长回答很容易撞破小上限导致截断
-      messages,
-    });
+    const { content: raw, call } = await callLLM(cfg, messages, briefRetried ? 'repair' : 'turn');
+    calls.push(call);
 
     const parsed = extractJSON(raw);
 
@@ -207,11 +237,15 @@ export async function runTurn({ session, message, cfg }) {
       const reply = unescapeText(parsed.reply);
       const brief = (parsed.handoff && String(parsed.handoff).trim())
         ? String(parsed.handoff)
-        : await fallbackHandoff(cfg, message, reply, prevHandoff);
+        : await fallbackHandoff(cfg, message, reply, prevHandoff, calls);
 
       const v = validateHandoff(brief, { prevHandoff });
       if (v.ok) {
-        return { agentId, reply, handoff: unescapeText(brief), logQueries, degraded: false, rejected: false, validation: { ok: true, errors: [] } };
+        return {
+          agentId, reply, handoff: unescapeText(brief), logQueries, degraded: false, rejected: false,
+          validation: { ok: true, errors: [] },
+          telemetry: { model: cfg.model || '', calls, ...sumCalls(calls), logLookups: logQueries.length, salvage: false, rejected: false },
+        };
       }
 
       // 拒收 → 带校验错误重派一次（§6）
@@ -223,15 +257,11 @@ export async function runTurn({ session, message, cfg }) {
       }
 
       // 再不过 → 独立摘要调用兜底，并标记为 rejected
-      const fb = await fallbackHandoff(cfg, message, reply, prevHandoff);
+      const fb = await fallbackHandoff(cfg, message, reply, prevHandoff, calls);
       return {
-        agentId,
-        reply,
-        handoff: unescapeText(fb),
-        logQueries,
-        degraded: true,
-        rejected: true,
+        agentId, reply, handoff: unescapeText(fb), logQueries, degraded: true, rejected: true,
         validation: validateHandoff(fb, { prevHandoff }),
+        telemetry: { model: cfg.model || '', calls, ...sumCalls(calls), logLookups: logQueries.length, salvage: false, rejected: true },
       };
     }
 
@@ -239,15 +269,11 @@ export async function runTurn({ session, message, cfg }) {
     const salvaged = salvageReply(raw);
     const reply = salvaged != null ? unescapeText(salvaged) : unescapeText(raw.trim());
     if (!reply) throw new Error('模型返回为空');
-    const fb = await fallbackHandoff(cfg, message, reply, prevHandoff);
+    const fb = await fallbackHandoff(cfg, message, reply, prevHandoff, calls);
     return {
-      agentId,
-      reply,
-      handoff: unescapeText(fb),
-      logQueries,
-      degraded: true,
-      rejected: false,
+      agentId, reply, handoff: unescapeText(fb), logQueries, degraded: true, rejected: false,
       validation: validateHandoff(fb, { prevHandoff }),
+      telemetry: { model: cfg.model || '', calls, ...sumCalls(calls), logLookups: logQueries.length, salvage: salvaged != null, rejected: false },
     };
   }
 

@@ -61,3 +61,9 @@ LLM_BASE_URL=http://localhost:5051 LLM_API_KEY=mock LLM_MODEL=mock npm start
 ```
 
 `MOCK_BAD_BRIEF` 取值 `placeholder | missing | budget | shrink | pointer`，分别对应五项校验的一类坏简报（无占位符 / 四节齐全 / 预算内 / 决策只增不删 / 指针有效）。开「后台实况」面板看校验错误 chip。
+
+## D. 自动化：成本双账本（v0.1.2）
+
+`tests/cost.test.js` 里每个数字都手算可复现：价目命中、token 粗估、两棒会话（接力更贵）、四十棒（接力反超）、交叉点 35 棒。改了价目表或单体基线口径而测试没红，说明测试写漏了。
+
+口径写在 `src/pricing.js` 顶部：单体 = 每轮重读 system + 全部历史（前缀按缓存价）+ 本轮新消息（全价）。要让它更好看或更难看，请改口径，不要改曲线。

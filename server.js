@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { runTurn } from './src/relay.js';
 import { toLlmConfig, PROVIDER_PRESETS, loadEnv } from './src/config.js';
 import { testConnection } from './src/llmAdapter.js';
+import { computeCost } from './src/pricing.js';
 
 process.on('uncaughtException', (e) => console.error('[uncaughtException]', e));
 process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e));
@@ -170,11 +171,17 @@ const server = http.createServer(async (req, res) => {
     if (method === 'GET' && pathname === '/api/state') {
       const s = getSession(searchParams.get('sid'));
       if (!s) return send(res, 404, { error: '会话不存在' });
+      // 成本双账本（v0.1.2）：model 优先取请求参数，否则回落到最近一棒实际用的模型
+      const model =
+        searchParams.get('model') ||
+        (s.batons.slice().reverse().find((b) => b.telemetry && b.telemetry.model) || {}).telemetry?.model ||
+        '';
       return send(res, 200, {
         agentCount: s.agentCount,
         handoff: s.handoff,
         log: s.log,
         batons: s.batons,
+        cost: computeCost({ batons: s.batons, log: s.log, model }),
       });
     }
 
@@ -214,8 +221,10 @@ const server = http.createServer(async (req, res) => {
         rejected: !!result.rejected,
         validation: result.validation || null,
         salvaged: !!result.salvaged,
+        telemetry: result.telemetry || null,
       });
       persist(s);
+      const cost = computeCost({ batons: s.batons, log: s.log, model: cfg.model });
 
       return send(res, 200, {
         agentId: result.agentId,
@@ -225,6 +234,7 @@ const server = http.createServer(async (req, res) => {
         rejected: !!result.rejected,
         validation: result.validation || null,
         salvaged: !!result.salvaged,
+        cost,
         keySource: resolved.source,
       });
     }

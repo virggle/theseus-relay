@@ -37,6 +37,8 @@ Why it comes before tool batons: **the field-tested traps — anti-placeholder, 
 
 Passing criterion: the panel can answer, in real time, "what would this session have cost monolithically by now".
 
+**Status**: shipped — `src/pricing.js` (price table + monolithic baseline + token estimation) → per-baton telemetry in `relay.js` (tokens, latency, model, log-lookup count, salvage/rejected/re-dispatch) → `cost` series returned by `/api/state` and `/api/turn` → "cost double-ledger" card with dual curves in the backstage panel. `tests/cost.test.js` re-derives the arithmetic by hand and pins down one fact: **under the current rates, a two-baton session is more expensive on relay; the crossover sits around baton 35** — and the panel shows the loss as readily as the win.
+
 ## v0.1.3 Cross-session bootstrap
 
 > Tracks served: P6 Persistence · P5 Scheduling
