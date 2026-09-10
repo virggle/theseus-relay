@@ -89,15 +89,18 @@ Passing criterion: a 50-baton session runs with two models mixed per rules, full
 
 ## v0.2 Tool batons
 
-> Tracks served: P4 Transactions (side-effect ledger) · P1 Cost (budget and oscillation detection)
+> Tracks served: P4 Transactions (side-effect ledger) · P1 Cost (budget and oscillation detection) · P2 Stability (loop budget)
 
 - The ACT phase may attach tools (file read/write, command execution, search)
 - New fifth brief section: the **side-effect ledger** — every irreversible operation this baton performed, item by item; the next baton must know "what has already been changed in the world" before taking over
 - Tool permissions granted per baton (read/write separation, allowlist for dangerous operations)
 - **Deterministic quality gates (backpressure)**: output passes tests / lint / build first — zero tokens, zero bias, run every time; on failure, re-dispatch immediately, do not escalate to a review baton
-- **Budget and oscillation detection**: baton-count cap, per-task cost cap; decision oscillation (a rejected option re-proposed) is detected by the substrate diffing the decision ledger, with an alert (PROTOCOL §6)
+- **Loop budget (PROTOCOL §2.1 — a prerequisite for tool batons)**: in-baton loop cap (default 6 tool round trips), context budget (≤ 60% of the model window), per-baton wall clock (≤ 90 s), dead-loop detection (same tool + same args ≥ 2 times). Any trigger fires → force a WRITE brief and hand off, rather than let context keep inflating. **Without these parameters, tool batons degrade back into a long-context monolith**, and the "bounded context" claim dies with it
+- **Cost and oscillation detection**: baton-count cap, per-task cost cap (reusing v0.1.2 telemetry); decision oscillation (a rejected option re-proposed) is detected by the substrate diffing the decision ledger, with an alert (PROTOCOL §6)
 
 Key design: **the evidence of tool calls lands in the substrate; the intent of tool calls goes into the brief.** The worker is stateless, but the world has state.
+
+Passing criterion: a tool baton hands off automatically after 6 steps, and the panel reports the reason for every trigger (loop count / context / wall clock / dead loop).
 
 ## v0.3 Substratization
 
