@@ -20,11 +20,35 @@ A turn must complete three things in order. None may be skipped:
 
 ```
 1. READ   Take in the brief + the user's message (this is the baton's entire world)
-2. ACT    Answer the user (may first run one bounded retrieval: {"action":"read_log","query":"…"})
+2. ACT    Answer the user (may first run one bounded retrieval: {"action":"read_log","query":"…"}; repeated round trips inside ACT: see §2.1)
 3. WRITE  Output the updated brief (cumulative compression, not a this-turn recap)
 ```
 
 The wire format is a single JSON: `{"reply": "...", "handoff": "..."}`. When model output is corrupted the substrate salvages it (see §6), but the contract with the model is always: emit the complete thing in one shot.
+
+## 2.1 In-baton loops vs. baton handoffs
+
+ACT may contain several "think → act → observe" round trips (a ReAct loop). **A round trip is not a handoff.** There is one criterion only:
+
+> **Was the context rebuilt from zero?** A loop happens inside one baton: messages keep accumulating, and the previous round's reasoning and tool results are all still there. A handoff resets the new baton's world to "brief + new input" — every prior reasoning chain is discarded, only the brief survives.
+
+So "how many LLM calls were made" is not the criterion: six calls inside one baton is still one baton; switching models or handing off to a reviewer is a handoff even if it takes a single call.
+
+**Why loops stay inside the baton**: tool chains are causally continuous ("I grepped this line → therefore I edit that line"). Compressing that into a brief loses the chain, and rebuilding it costs another call. The price is O(n) context growth — which is exactly why loops must be bounded.
+
+**When a handoff is mandatory** (hitting a limit is not a discard: persist what matters first per Invariant 4, write the progress into the brief, and let the next baton continue from there):
+
+| Trigger | Default threshold | Why |
+|---------|-------------------|-----|
+| In-baton loop count | ≥ 6 tool round trips | Beyond that it is a monolith in relay clothing |
+| In-baton context | ≥ 60% of the model window | Leave 40% for output and for the compress-into-brief call |
+| Per-baton wall clock | ≥ 90 s | A stuck baton gets replaced, not waited on |
+| Dead loop | Same tool + same args ≥ 2 times | The cheapest check there is: zero tokens |
+| Semantic boundary | Executor baton → reviewer baton | The reviewer must structurally not have seen the writing process (§7, extension 5) |
+| Side effects | After any irreversible action | The side-effect ledger travels with the brief (§7, extension 2) |
+| Model switch | Switching model means switching baton | The brief is the only medium (§7, closing paragraph) |
+
+**Implementation status**: v0.1 hard-codes the in-baton loop cap at 3 calls (2 log lookups + 1 re-dispatch), with no configurable budget and no dead-loop detection. v0.2 tool batons must turn these into explicit parameters (loop cap / context budget / wall clock / dead-loop detection) — otherwise tool batons degrade back into a single long-context agent, and the "bounded context" claim becomes fiction.
 
 ## 3. Brief Schema
 
