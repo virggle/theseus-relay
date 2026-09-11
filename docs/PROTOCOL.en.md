@@ -48,7 +48,7 @@ So "how many LLM calls were made" is not the criterion: six calls inside one bat
 | Side effects | After any irreversible action | The side-effect ledger travels with the brief (§7, extension 2) |
 | Model switch | Switching model means switching baton | The brief is the only medium (§7, closing paragraph) |
 
-**Implementation status**: v0.1 hard-codes the in-baton loop cap at 3 calls (2 log lookups + 1 re-dispatch), with no configurable budget and no dead-loop detection. v0.2 tool batons must turn these into explicit parameters (loop cap / context budget / wall clock / dead-loop detection) — otherwise tool batons degrade back into a single long-context agent, and the "bounded context" claim becomes fiction.
+**Implementation status**: v0.1 hard-codes the in-baton loop cap at 3 calls (2 log lookups + 1 re-dispatch), with no configurable budget and no dead-loop detection. **Correction (2026-09-12)**: in the code those three call types share a **single** counter, so the "2 log lookups + 1 re-dispatch" combination cannot actually occur; and exhausting the budget throws rather than wrapping up and handing off as this section describes — i.e. this section's promise never landed in v0.1 (see R1 in ROADMAP's "Revisions and prerequisites"). v0.2 tool batons must turn these into explicit parameters (loop cap / context budget / wall clock / dead-loop detection) and implement the "work allowance + wrap-up reserve" split and the wrap-up semantics — otherwise tool batons degrade back into a single long-context agent, and the "bounded context" claim becomes fiction.
 
 ## 3. Brief Schema
 
@@ -123,5 +123,5 @@ A further implication: once the brief schema is versioned, **batons can relay ac
 - Brief compression variance is high: different batons judge "what matters" differently; long-horizon information decay is unavoidable (this is a feature and a bug)
 - Long-horizon decay is unmeasured: periodically run a recall spot-check of "substrate ground truth vs. current brief", turning decay from a confession into an observable metric (to be built → scheduled as ROADMAP v0.1.4 decay probe)
 - Chinese 2-gram retrieval is low-fidelity: fine for a demo, not for production
-- 2–3 LLM calls per baton (answer + salvage fallback) — more expensive than a single continuous-agent conversation. What you buy is bounded context and auditability (since v0.1.2 this is no longer a confession: the panel shows the simulated monolithic spend live — short sessions really are more expensive, the crossover sits around baton 35)
+- 2–3 LLM calls per baton (answer + salvage fallback) — more expensive than a single continuous-agent conversation. What you buy is bounded context and auditability (since v0.1.2 this is no longer a confession: the panel shows the simulated monolithic spend live — short sessions really are more expensive, the crossover sits around baton 35; that rate carries two pending revisions, see "Revisions and prerequisites" R3 / R4 in ROADMAP, and this number will change once they land)
 - The "2 lookups per baton" quota was once misread by a model as requiring user approval — tool semantics must be nailed down in the prompt
