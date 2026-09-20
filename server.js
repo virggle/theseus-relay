@@ -7,7 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-import { runTurn } from './src/relay.js';
+import { runChain } from './src/task.js';
 import { toLlmConfig, PROVIDER_PRESETS, loadEnv } from './src/config.js';
 import { testConnection } from './src/llmAdapter.js';
 import { computeCost } from './src/pricing.js';
@@ -65,7 +65,7 @@ async function parseJSONBody(req) {
 const sessions = new Map();
 
 function newSession(sid) {
-  const s = { sid, agentCount: 0, handoff: '', log: [], batons: [], mode: 'relay' };
+  const s = { sid, agentCount: 0, handoff: '', log: [], batons: [], artifacts: [], mode: 'relay' };
   sessions.set(sid, s);
   return s;
 }
@@ -82,6 +82,7 @@ function getSession(sid) {
       handoff: raw.handoff || '',
       log: Array.isArray(raw.log) ? raw.log : [],
       batons: Array.isArray(raw.batons) ? raw.batons : [],
+      artifacts: Array.isArray(raw.artifacts) ? raw.artifacts : [],
       mode: raw.mode === 'single' ? 'single' : 'relay',
     };
     sessions.set(sid, s);
@@ -96,7 +97,13 @@ function persist(session) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(
       path.join(DATA_DIR, `${session.sid}.json`),
-      JSON.stringify({ agentCount: session.agentCount, handoff: session.handoff, log: session.log, batons: session.batons })
+      JSON.stringify({
+        agentCount: session.agentCount,
+        handoff: session.handoff,
+        log: session.log,
+        batons: session.batons,
+        artifacts: session.artifacts || [],
+      })
     );
   } catch (e) {
     console.error('[persist]', e.message);
@@ -202,42 +209,51 @@ const server = http.createServer(async (req, res) => {
 
       const ts = Date.now();
 
-      const result = await runTurn({ session: s, message, cfg });
+      // H0：一条用户消息跑完整条单链（工具返回驱动换棒），而不是只跑一根棒
+      const result = await runChain({ session: s, message, cfg });
 
-      // 记录与换代
-      s.agentCount = result.agentId;
-      s.handoff = result.handoff; // failed 棒沿用上一棒简报（产物不落盘）
+      // 记录与换代：链上每根棒都是一张面板卡片
+      s.agentCount += result.batons.length;
+      s.handoff = result.handoff;
       // 用户消息无条件进 log：用户确实说过这句话，档案库不该有洞（ROADMAP R1 推论）
-      s.log.push({ ts, role: 'user', agentId: result.agentId, text: message, mode: 'relay' });
+      s.log.push({ ts, role: 'user', agentId: result.batons[0].agentId, text: message, mode: 'relay' });
       if (result.reply) {
-        s.log.push({ ts, role: 'assistant', agentId: result.agentId, text: result.reply, mode: 'relay' });
+        s.log.push({ ts, role: 'assistant', agentId: result.batons[result.batons.length - 1].agentId, text: result.reply, mode: 'relay' });
       }
-      s.batons.push({
-        agentId: result.agentId,
-        ts,
-        handoff: result.handoff,
-        prevHandoff: s.batons.length ? s.batons[s.batons.length - 1].handoff : '',
-        userMessage: message,
-        lastReply: result.reply,
-        logQueries: result.logQueries,
-        degraded: result.degraded,
-        rejected: !!result.rejected,
-        validation: result.validation || null,
-        salvaged: !!result.salvaged, // R6：relay 现在真的会返回这个标记
-        failed: !!result.failed,
-        telemetry: result.telemetry || null,
-      });
+      for (const b of result.batons) {
+        s.batons.push({
+          agentId: b.agentId,
+          ts,
+          handoff: b.handoff || '',
+          prevHandoff: b.seq === 1 ? (s.batons.length ? s.batons[s.batons.length - 1].handoff : '') : result.batons[b.seq - 2].handoff || '',
+          drivingInput: b.drivingInput, // 本棒的驱动输入（用户消息或工具返回装配结果）
+          userMessage: b.seq === 1 ? message : null, // 兼容旧面板字段
+          calls: b.calls, // [{tool, args, class, ok, denied, summary, artifact}]
+          handoffReason: b.handoffReason || null, // reply | info-return | ack-aggregate | budget
+          writes: b.writes,
+          lastReply: b.reply,
+          logQueries: [],
+          degraded: !!(b.salvaged || b.rejected),
+          rejected: !!b.rejected,
+          validation: b.validation || null,
+          salvaged: !!b.salvaged,
+          failed: !b.reply && !b.emittedCalls,
+          telemetry: b.telemetry || null,
+          costUsd: b.costUsd || 0,
+        });
+      }
       persist(s);
       const cost = computeCost({ batons: s.batons, log: s.log, model: cfg.model });
 
       return send(res, 200, {
-        agentId: result.agentId,
+        agentId: result.batons[result.batons.length - 1].agentId,
         reply: result.reply,
-        logQueries: result.logQueries,
-        degraded: result.degraded,
-        rejected: !!result.rejected,
-        validation: result.validation || null,
-        salvaged: !!result.salvaged,
+        chain: { status: result.status, stoppedReason: result.stoppedReason, batons: result.batons.length, costUsd: result.costUsd },
+        logQueries: [],
+        degraded: result.batons.some((b) => b.salvaged || b.rejected),
+        rejected: result.batons.some((b) => b.rejected),
+        validation: result.batons[result.batons.length - 1].validation || null,
+        salvaged: result.batons.some((b) => b.salvaged),
         cost,
         keySource: resolved.source,
       });
@@ -252,6 +268,7 @@ const server = http.createServer(async (req, res) => {
         s.handoff = '';
         s.log = [];
         s.batons = [];
+        s.artifacts = [];
         persist(s);
       }
       return send(res, 200, { ok: true });

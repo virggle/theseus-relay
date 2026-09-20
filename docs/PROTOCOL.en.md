@@ -20,11 +20,11 @@ A turn must complete three things in order. None may be skipped:
 
 ```
 1. READ   Take in the brief + this baton's driving input (this is the baton's entire world)
-2. ACT    Emit a set of tool-call requests (degrades to a reply in the chat scenario; v0.1's bounded retrieval {"action":"read_log","query":"…"} belongs to this same step)
+2. ACT    Emit a set of tool-call requests {"calls":[{tool,args},…]}, or degrade to a reply {"reply":"…"} in the chat scenario (v0.1's bounded retrieval {"action":"read_log","query":"…"} belongs to the calls semantics)
 3. WRITE  Output the updated brief: cumulative compression + next intent, not a this-turn recap
 ```
 
-The wire format is a single JSON: `{"reply": "...", "handoff": "..."}`. From H0 onwards, tool batons express their tool-call requests as a `calls` array (see §2.1). When model output is corrupted the substrate salvages it (see §6), but the contract with the model is always: emit the complete thing in one shot.
+The wire format is a single JSON: tool batons use `{"calls":[…], "handoff": "…"}` (see §2.2), chat batons use `{"reply": "...", "handoff": "..."}`. When model output is corrupted the substrate salvages it (see §6), but the contract with the model is always: emit the complete thing in one shot.
 
 ## 2.1 Baton boundaries: information-driven (rewritten 2026-09-20)
 
@@ -57,15 +57,50 @@ Once a baton no longer spans tool calls, it no longer carries "what I did over t
 - **v0.1 criterion** (was the context zeroed): allowed in-baton ReAct loops, bounded by the four parameters above. Its promise never landed — the 2026-09-12 code review found that log lookup, validator re-dispatch and answering share one `for (i<3)` counter (ROADMAP R1), and exhausting the budget threw instead of wrapping up.
 - **Current criterion** (this section): in-baton loops are abolished in favour of a static information-dependency criterion. This is not a tuning of those parameters but the removal of the need for them — R1 therefore **dissolves structurally**; until H0 lands, however, it remains a real defect in the v0.1 code.
 
+## 2.2 Tool-Baton Contract (H0)
+
+The tool baton is the §2 turn contract made concrete for task scenarios. The ACT wire format:
+
+```
+{"calls":[{"tool":"search_files","args":{"dir":"docs","pattern":"budget"}}, …], "handoff":"…"}
+```
+
+One baton, one action: **either emit a batch of calls, or give an answer** — never both. `calls` and `reply` are mutually exclusive — there is no "call first, get the result, then answer" round trip inside a baton.
+
+### Minimal tool set (H0)
+
+| Tool | Signature | Return kind |
+|------|-----------|-------------|
+| `search_files` | `{dir, pattern}` (substring match, case-insensitive) | Info-type: list of hit lines |
+| `read_file` | `{path, offset?, limit?}` (by line, first 100 by default) | Info-type: file content |
+| `write_file` | `{path, content}` | Ack-type: success/failure |
+
+Paths are always relative to this session's **workspace** (`data/workspace/<sid>/`); absolute paths and escaping paths (`..`, drive letters) are rejected by the substrate — path guarding belongs to scripts, not prompts.
+
+### Permissions and side effects
+
+- **Permissions granted per baton**: the substrate passes in a whitelist of tools this baton may use (all three open by default in H0); an out-of-scope call is not executed and returns a denial acknowledgement (ack-type, aggregated into the next baton).
+- **Write targets must be identifiable**: the `path` of `write_file` **is** the `write_target`, statically derivable from the tool signature, and is booked item by item by the substrate (the single-chain form of §2.1 hard clause 1; the concurrency disjointness check waits for H1).
+- **Side-effect ledger**: the fifth brief section "Side effects" lists this baton's irreversible operations item by item, or "none". The **actual** write record held by the substrate is injected into the next baton alongside the return values, cross-checking the baton's own declaration.
+
+### Long outputs persist to the substrate (v0.3a)
+
+When a tool output exceeds the threshold (currently 1000 characters), the substrate persists the full text as an artifact (`data/artifacts/<sid>/…`) and the baton sees only a **summary + a `->` pointer**. Thus "bounded context" does not break on tool batons: no baton's context contains the raw text of a long tool output. Pointer validity is guarded by the §4 validator. A baton that needs details re-reads them with `read_file` in segments — that retrieval is itself an info-type return and triggers a handoff as usual.
+
+### Handoff reasons (auditable)
+
+When each baton on the chain leaves the stage, the substrate records a mechanically decidable handoff reason: `reply` (an answer was given, chain ends) | `info-return` (an info-type return drives a new baton) | `ack-aggregate` (aggregated acknowledgements handed over) | `budget` (task-level budget reached, wrapping up). The panel shows calls, return classifications and handoff reasons step by step — this is where P3 audit lands on the chain.
+
 ## 3. Brief Schema
 
-A fixed four-section structure; every generation must output all of it:
+A fixed five-section structure; every generation must output all of it:
 
 ```
 ## Progress       compressed context of everything so far + this generation's new progress
 ## Decisions      settled conclusions, rejected options and why — append-only
 ## User profile   communication style, background, what they care about — merged update
-## Open questions resolved ones cleared out, new ones added
+## Open questions resolved ones cleared out, new ones added (incl. next intent: what to do + on what evidence)
+## Side effects   this baton's irreversible operations, item by item; "none" if empty (§2.2)
 ```
 
 ### Four hard invariants
@@ -85,7 +120,7 @@ Prompt constraints are the first line of defense, not the only one. The substrat
 
 | Check | How it's decided |
 |-------|------------------|
-| Four sections present | Heading structure match |
+| Five sections present | Heading structure match (Progress / Decisions / User profile / Open questions / Side effects) |
 | No placeholders | Meta-comment regex ("same as above", "omitted", "previous conclusions retained", etc.) |
 | Within budget | Total length ≤ current cap |
 | Decisions append-only | Diff against the previous brief: item counts in Decisions and User profile must not decrease |

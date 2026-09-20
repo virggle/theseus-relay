@@ -4,30 +4,37 @@
 // 校验器联调：设 MOCK_BAD_BRIEF=<mode> 让首轮故意交坏简报，验证「拒收 → 重派 → 兜底」链路。
 //   mode: placeholder | missing | budget | shrink | pointer
 //   被拒收后（消息含 [系统·简报校验未通过]）自动改交好简报，用于观察重派成功率。
+//
+// 单链步进联调（H0）：设 MOCK_CHAIN=1，mock 走一条完整工具链：
+//   第 1 棒发 calls（write_file + search_files）→ 收到确认聚合 + 信息返回
+//   第 2 棒再发 calls（read_file，信息型）→ 收到信息返回
+//   第 3 棒给出 reply，链终止 —— 面板上可看到全部四类交接原因中的三类。
 import http from 'node:http';
 
 let turnCount = 0;
 
 const REJECT_MARK = '[系统·简报校验未通过]';
 
-const GOOD_BRIEF = '## 进展\nmock 交接，链路正常\n## 决策\n1. 先验证再落盘\n2. 决策只增不删\n## 用户画像\n测试用户，偏好简短\n## 开放问题\n无';
+const GOOD_BRIEF = '## 进展\nmock 交接，链路正常\n## 决策\n1. 先验证再落盘\n2. 决策只增不删\n## 用户画像\n测试用户，偏好简短\n## 开放问题\n无\n## 副作用\n无';
 
 function badBrief(mode) {
   switch (mode) {
     case 'placeholder':
-      return '## 进展\nmock 交接\n## 决策\n（保留全部旧结论）\n## 用户画像\n测试用户\n## 开放问题\n无';
+      return '## 进展\nmock 交接\n## 决策\n（保留全部旧结论）\n## 用户画像\n测试用户\n## 开放问题\n无\n## 副作用\n无';
     case 'missing':
-      return '## 进展\nmock 交接，故意缺节\n## 用户画像\n测试用户\n## 开放问题\n无';
+      return '## 进展\nmock 交接，故意缺节\n## 用户画像\n测试用户\n## 开放问题\n无\n## 副作用\n无';
     case 'budget':
-      return '## 进展\n' + '这是一段很长的填充内容用于突破八百字预算上限'.repeat(40) + '\n## 决策\n1. 无\n## 用户画像\n测试用户\n## 开放问题\n无';
+      return '## 进展\n' + '这是一段很长的填充内容用于突破八百字预算上限'.repeat(40) + '\n## 决策\n1. 无\n## 用户画像\n测试用户\n## 开放问题\n无\n## 副作用\n无';
     case 'shrink':
-      return '## 进展\nmock 交接\n## 决策\n## 用户画像\n测试用户\n## 开放问题\n无';
+      return '## 进展\nmock 交接\n## 决策\n## 用户画像\n测试用户\n## 开放问题\n无\n## 副作用\n无';
     case 'pointer':
-      return '## 进展\nmock 交接\n## 决策\n1. 无\n## 用户画像\n测试用户\n## 开放问题\n见 -> docs/NOPE-404.md';
+      return '## 进展\nmock 交接\n## 决策\n1. 无\n## 用户画像\n测试用户\n## 开放问题\n见 -> docs/NOPE-404.md\n## 副作用\n无';
     default:
       return GOOD_BRIEF;
   }
 }
+
+const briefOf = () => (process.env.MOCK_BAD_BRIEF ? badBrief(process.env.MOCK_BAD_BRIEF) : GOOD_BRIEF);
 
 const server = http.createServer((req, res) => {
   if (req.method !== 'POST') { res.writeHead(404); return res.end(); }
@@ -41,6 +48,10 @@ const server = http.createServer((req, res) => {
 
     const badMode = process.env.MOCK_BAD_BRIEF;
     const rejected = last.startsWith(REJECT_MARK);
+    const chainMode = !!process.env.MOCK_CHAIN;
+    // 驱动输入是「确认聚合 + 实际写入 + 信息返回」的拼装体，用 includes 判定到了链条哪一步
+    const hasAckReturn = last.includes('[系统·确认聚合]') || last.includes('[系统·实际写入]');
+    const hasInfoReturn = last.includes('[系统·信息返回]');
 
     let content;
     if (rejected) {
@@ -49,20 +60,43 @@ const server = http.createServer((req, res) => {
         reply: `（mock 重派后）已收到校验错误。`,
         handoff: process.env.MOCK_ALWAYS_BAD ? badBrief(badMode || 'placeholder') : GOOD_BRIEF,
       });
+    } else if (chainMode && hasInfoReturn && !hasAckReturn) {
+      // 链上第 3 棒：只有信息返回（read_file 的结果），给出回答，链终止
+      content = JSON.stringify({
+        reply: `（mock 链完成）写入与读取都已确认：hello.txt 已落工作区，任务收尾。`,
+        handoff: briefOf(),
+      });
+    } else if (chainMode && hasAckReturn) {
+      // 链上第 2 棒：确认聚合已回来，再发一次信息型调用（read_file），验证「信息型触发换棒」
+      content = JSON.stringify({
+        calls: [{ tool: 'read_file', args: { path: 'hello.txt' } }],
+        handoff: briefOf(),
+      });
+    } else if (chainMode) {
+      // 链上第 1 棒：一批互不依赖的调用（写 + 搜），一次发完 —— 确认型 + 信息型混合
+      // MOCK_PATTERN 可指向预置大文件的关键词，用于验证「长输出落基底」路径
+      const pattern = process.env.MOCK_PATTERN || 'hello';
+      content = JSON.stringify({
+        calls: [
+          { tool: 'write_file', args: { path: 'hello.txt', content: 'hello from mock chain\n第二次搜索命中行' } },
+          { tool: 'search_files', args: { dir: '.', pattern } },
+        ],
+        handoff: briefOf(),
+      });
     } else if (last.startsWith('[系统·翻日志结果]')) {
       content = JSON.stringify({
         reply: `（mock 第${turnCount}次）我翻了日志，现在回答你。`,
-        handoff: badMode ? badBrief(badMode) : GOOD_BRIEF,
+        handoff: briefOf(),
       });
     } else if (turnCount % 3 === 0) {
       // 每三棒模拟一次"需要翻日志"
       content = JSON.stringify({ action: 'read_log', query: '最开始' });
     } else {
-      const m = sys.match(/第(\d+)棒 Agent/);
+      const m = sys.match(/第(\d+)棒/);
       const n = m ? m[1] : '?';
       content = JSON.stringify({
         reply: `（mock 第${n}棒）收到你的消息：「${last.slice(0, 30)}」。我只读了交接和这句话，历史我什么都不知道。`,
-        handoff: badMode ? badBrief(badMode) : `## 进展\n用户说了「${last.slice(0, 20)}」\n## 决策\n1. 沿用上一棒结论\n## 用户画像\n待观察\n## 开放问题\n无`,
+        handoff: briefOf(),
       });
     }
 
@@ -75,4 +109,9 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(5051, () => console.log('mock LLM on :5051' + (process.env.MOCK_BAD_BRIEF ? ` (MOCK_BAD_BRIEF=${process.env.MOCK_BAD_BRIEF})` : '')));
+server.listen(5051, () => {
+  const tags = [];
+  if (process.env.MOCK_BAD_BRIEF) tags.push(`MOCK_BAD_BRIEF=${process.env.MOCK_BAD_BRIEF}`);
+  if (process.env.MOCK_CHAIN) tags.push('MOCK_CHAIN=1');
+  console.log('mock LLM on :5051' + (tags.length ? ` (${tags.join(', ')})` : ''));
+});

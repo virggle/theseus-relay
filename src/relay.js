@@ -54,14 +54,19 @@ const HANDOFF_FORMAT = `## 进展
 ## 用户画像
 沟通风格、背景、在意什么
 ## 开放问题
-悬而未决、下一棒需要留意的`;
+悬而未决、下一棒需要留意的（含下一步意图：做什么 + 依据哪个证据）
+## 副作用
+本棒执行过的不可逆操作逐条列出；没有就写「无」`;
+
+// 导出给 task.js（单链步进）复用：对话与任务两条线共用同一套简报格式与抢救管线
+export { HANDOFF_FORMAT };
 
 // ---------- system prompt ----------
 
 function buildSystemPrompt(agentId, prevHandoff) {
   const prev = prevHandoff
     ? `【工作简报（上一任助手留给你，其中已压缩了此前全部对话的重要信息）】\n${prevHandoff}`
-    : '【工作简报】你是第一位助手，没有简报。请自然回应用户，并按下方固定格式写 handoff（各节内容可以简短，但四节一个都不能少）。';
+    : '【工作简报】你是第一位助手，没有简报。请自然回应用户，并按下方固定格式写 handoff（各节内容可以简短，但五节一个都不能少）。';
   return `你是一个对话助手。你面前只有两样东西：
 1. 一份《工作简报》——上一任助手留下的、对此前全部对话的压缩记录（见下）
 2. 用户本轮的最新消息
@@ -71,13 +76,13 @@ function buildSystemPrompt(agentId, prevHandoff) {
 - 回答完必须更新简报（handoff 字段）：把上一份简报中仍相关的内容压缩保留，融入本轮新信息——下一任助手只能看到这份文档，看不到本轮对话。
 - 简报「决策」一节只增不删：已确定的结论、被否掉的方案及理由，一条都不许丢。
 - 严禁元注释和占位符：不许写「（保留全部旧结论）」「同上」「略」这类缩写——下一任助手看不到旧简报的原文，占位符等于销毁信息。「决策」与「用户画像」必须逐条完整写出，哪怕与上一份简报一字不差。
-- 「用户画像」合并更新；「开放问题」清旧加新；总长 ${BRIEF_BUDGET} 字以内，优先级：决策与约束 > 用户画像 > 开放问题 > 进展细节。
+- 「用户画像」合并更新；「开放问题」清旧加新；「副作用」如实记录；总长 ${BRIEF_BUDGET} 字以内，优先级：决策与约束 > 副作用 > 用户画像 > 开放问题 > 进展细节。
 
-你的简报会被基底机械校验（不是人看，是脚本判）：四节齐全、无占位符、${BRIEF_BUDGET} 字内、决策与用户画像条目不得比上一份少。校验不过会被拒收并要求你重发，所以一次写对更省事。
+你的简报会被基底机械校验（不是人看，是脚本判）：五节齐全、无占位符、${BRIEF_BUDGET} 字内、决策与用户画像条目不得比上一份少。校验不过会被拒收并要求你重发，所以一次写对更省事。
 
 ${prev}
 
-【简报固定格式——每一棒都必须遵守，四节缺一不可，节标题原样保留】
+【简报固定格式——每一棒都必须遵守，五节缺一不可，节标题原样保留】
 ${HANDOFF_FORMAT}
 
 【翻日志工具】如果简报不够、必须回查历史，只返回这个 JSON（不含其他文字）：
@@ -104,7 +109,7 @@ function rejectionMessage(v) {
 
 // purpose: turn（主回答，含翻日志那一次试探）| repair（拒收后重派）| fallback（兜底摘要）
 // 端点不回 usage 时按字符估算，并标记 estimated —— 面板必须说清哪些数是估的。
-async function callLLM(cfg, messages, purpose, opts = {}) {
+export async function callLLM(cfg, messages, purpose, opts = {}) {
   const t0 = Date.now();
   const { content, usage } = await chatCompletion({
     ...cfg,
@@ -136,7 +141,7 @@ function sumCalls(calls) {
 
 // ---------- 辅助：从模型输出抠 JSON ----------
 
-function extractJSON(raw) {
+export function extractJSON(raw) {
   const start = raw.indexOf('{');
   const end = raw.lastIndexOf('}');
   if (start === -1 || end <= start) return null;
@@ -148,7 +153,7 @@ function extractJSON(raw) {
 }
 
 // JSON 解析失败的兜底：单独一次调用生成交接文档
-async function fallbackHandoff(cfg, userMsg, reply, prevHandoff, calls) {
+export async function fallbackHandoff(cfg, userMsg, reply, prevHandoff, calls) {
   const messages = [
     {
       role: 'system',
@@ -165,7 +170,7 @@ async function fallbackHandoff(cfg, userMsg, reply, prevHandoff, calls) {
 }
 
 // 从损坏/截断的 JSON 中抢救 reply 字段
-function salvageReply(raw) {
+export function salvageReply(raw) {
   // 情形一：reply 字符串完整闭合，只是 handoff 部分缺失或非法
   const m = raw.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/);
   if (m) {
@@ -189,7 +194,7 @@ function salvageReply(raw) {
 }
 
 // 模型有时会把 \n 双重转义成字面量，这里归一化成真实换行
-function unescapeText(s) {
+export function unescapeText(s) {
   return String(s).replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').trim();
 }
 

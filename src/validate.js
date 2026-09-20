@@ -1,18 +1,19 @@
-// 基底校验器 v0.1.1 —— 把 PROTOCOL §4 的五项机械校验从提示词落到脚本。
+// 基底校验器 v0.1.1 → H0 —— 把 PROTOCOL §4 的机械校验从提示词落到脚本。
 // 原则：能写进基底的规则不留在提示词里。模型会作弊（「（保留全部旧结论）」就是实录），脚本不会。
 //
-// 五项校验（纯函数，除指针项外无 IO）：
-//   1. 四节齐全        标题结构匹配
+// 六项校验（纯函数，除指针项外无 IO）：
+//   1. 五节齐全        标题结构匹配（进展 / 决策 / 用户画像 / 开放问题 / 副作用）
 //   2. 无占位符        元注释正则
 //   3. 预算内          去空白字符数 ≤ 800
 //   4. 决策只增不删    与上一份简报 diff：决策、用户画像条目数不得减少
 //   5. 指针有效        不变量 4 的落盘指针，指向的基底路径必须真实存在（无指针则通过）
+//   （副作用节无单调性要求：本棒写了 3 个文件、下一棒可以一个不写，只要求节存在）
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const SECTION_TITLES = ['进展', '决策', '用户画像', '开放问题'];
+export const SECTION_TITLES = ['进展', '决策', '用户画像', '开放问题', '副作用'];
 export const BRIEF_BUDGET = 800;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

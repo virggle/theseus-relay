@@ -1,0 +1,84 @@
+// 单链步进纯函数单测（node:test）—— H0 验收的确定性部分。
+// 完整链路（LLM + 工具 + artifacts）由 mock-llm 无 key 联调覆盖（TESTS.md §C）；
+// 这里锁定：驱动输入装配、长输出摘要 + 指针形态、停机报告文本 —— 全部确定性断言。
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { buildDrivingInput, buildChainReport, renderInfoResult, TASK_BUDGET, ARTIFACT_MAX_CHARS } from '../src/task.js';
+import { aggregateAcks } from '../src/returns.js';
+
+test('buildDrivingInput：只有确认时 = 聚合一行 + 实际写入记录', () => {
+  const { text } = buildDrivingInput({
+    acks: [
+      { tool: 'write_file', ok: true, target: 'a.txt', bytes: 10 },
+      { tool: 'write_file', ok: false, target: 'b.txt', error: 'EACCES' },
+    ],
+    writes: [{ target: 'a.txt', bytes: 10 }],
+  });
+  const lines = text.split('\n');
+  assert.equal(lines[0], '[系统·确认聚合] 确认聚合 2 个：1 成功、1 失败（EACCES@b.txt）', '确认必须压成一行');
+  assert.match(text, /\[系统·实际写入\].*a\.txt/);
+});
+
+test('buildDrivingInput：信息型短输出原文进入驱动输入（≤ 阈值不落基底）', () => {
+  const { text } = buildDrivingInput({ infos: [{ tool: 'read_file', ok: true, path: 'a.txt', totalLines: 3, lines: [{ no: 1, text: 'hello' }] }] });
+  assert.match(text, /read_file a\.txt 共 3 行/);
+  assert.match(text, /1\|hello/);
+  assert.ok(!text.includes('落基底'));
+});
+
+test('buildDrivingInput：长输出只给摘要 + 指针，上下文里没有原文（v0.3a 验收口径）', () => {
+  const longText = Array.from({ length: 200 }, (_, i) => `${i + 1}|这一行很长很长用来撑大输出体积-${'x'.repeat(50)}`).join('\n');
+  assert.ok(longText.length > ARTIFACT_MAX_CHARS);
+  const info = {
+    tool: 'read_file',
+    ok: true,
+    path: 'big.txt',
+    totalLines: 200,
+    lines: longText.split('\n').map((t) => ({ no: Number(t.split('|')[0]), text: t.split('|')[1] })),
+    artifact: { path: 'data/artifacts/sid123/b1-0.txt', chars: longText.length, tool: 'read_file' },
+  };
+  const { text } = buildDrivingInput({ infos: [info] });
+  assert.match(text, /-> data\/artifacts\/sid123\/b1-0\.txt/);
+  assert.match(text, /read_file 按行分段取回/);
+  assert.ok(text.length < ARTIFACT_MAX_CHARS, `驱动输入必须远小于原文（${text.length} < ${longText.length}）`);
+  assert.ok(!text.includes(longText), '全文原文不许出现在驱动输入里（允许有头部摘要）');
+});
+
+test('buildDrivingInput：空返回给占位说明，不产生空驱动输入', () => {
+  const { text } = buildDrivingInput({});
+  assert.match(text, /没有产生任何返回内容/);
+});
+
+test('renderInfoResult：read_file / search_files 的确定性渲染', () => {
+  assert.equal(renderInfoResult({ tool: 'read_file', lines: [{ no: 2, text: 'b' }, { no: 3, text: 'c' }] }), '2|b\n3|c');
+  assert.equal(renderInfoResult({ tool: 'search_files', hits: [{ file: 'a.md', lineNo: 4, text: '预算' }] }), 'a.md:4: 预算');
+  assert.equal(renderInfoResult({ tool: 'read_file', ok: false, error: 'ENOENT' }), 'ENOENT');
+});
+
+test('buildChainReport：触顶报告含原因、成本、简报留存，确定性文本', () => {
+  const r1 = buildChainReport({
+    status: 'budget_stopped', stoppedReason: 'maxBatons', batonsRun: 12, costUsd: 0.21,
+    maxBatons: 12, maxCost: 0.5, lastHandoff: '## 进展\n…', pendingInfos: [],
+  });
+  assert.match(r1, /棒数触顶（已运行 12 根 ≥ 上限 12 根）/);
+  assert.match(r1, /\$0\.2100/);
+  assert.match(r1, /下一步意图/);
+
+  const r2 = buildChainReport({
+    status: 'budget_stopped', stoppedReason: 'maxCost', batonsRun: 7, costUsd: 0.5123,
+    maxBatons: 12, maxCost: 0.5, lastHandoff: '', pendingInfos: [{ tool: 'search_files', ok: true, pattern: 'TODO', total: 9 }],
+  });
+  assert.match(r2, /任务成本触顶/);
+  assert.match(r2, /search_files「TODO」命中 9 处/);
+});
+
+test('TASK_BUDGET 默认值存在且为正（任务级预算必须可配置前有兜底）', () => {
+  assert.ok(TASK_BUDGET.maxBatonsPerTask > 0);
+  assert.ok(TASK_BUDGET.maxCostPerTaskUsd > 0);
+});
+
+test('端到端口径演练：确认聚合函数在链上产物是一行（aggregateAcks 回归锚点）', () => {
+  const line = aggregateAcks([{ tool: 'write_file', ok: true, target: 'docs/x.md', bytes: 1 }]);
+  assert.equal(line, '确认聚合 1 个：1 成功');
+  assert.equal(line.includes('\n'), false);
+});

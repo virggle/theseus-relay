@@ -7,13 +7,15 @@ import { validateHandoff, parseSections, countItems, countChars, findPointers } 
 const GOOD = `## 进展
 用户在评估接力协议，已跑到第 12 棒。
 ## 决策
-1. 简报四节固定，节标题原样保留
+1. 简报五节固定，节标题原样保留
 2. 决策账本只增不删
 3. 不引入向量数据库
 ## 用户画像
 偏好结论优先、结构化表格；要求中英双语同步
 ## 开放问题
-长程衰减如何度量`;
+长程衰减如何度量
+## 副作用
+无`;
 
 const codes = (v) => v.errors.map((e) => e.code);
 
@@ -23,10 +25,22 @@ test('好简报通过全部五项', () => {
   assert.deepEqual(v.errors, []);
 });
 
-test('① 四节齐全：缺「## 决策」被拒', () => {
+test('① 五节齐全：缺「## 决策」被拒', () => {
   const v = validateHandoff(GOOD.replace(/## 决策\n[\s\S]*?(?=## 用户画像)/, ''));
   assert.ok(codes(v).includes('SECTIONS_MISSING'));
   assert.match(v.errors[0].msg, /决策/);
+});
+
+test('① 五节齐全：缺「## 副作用」被拒（H0 新增第五节）', () => {
+  const v = validateHandoff(GOOD.replace(/\n## 副作用\n无$/, ''));
+  assert.ok(codes(v).includes('SECTIONS_MISSING'));
+  assert.match(v.errors[0].msg, /副作用/);
+});
+
+test('① 副作用节无单调性：上一棒有写入、本棒「无」也通过', () => {
+  const prev = GOOD.replace('## 副作用\n无', '## 副作用\n1. 写入 data/workspace/a.txt');
+  const cur = GOOD; // 本棒无副作用
+  assert.equal(validateHandoff(cur, { prevHandoff: prev }).ok, true, JSON.stringify(validateHandoff(cur, { prevHandoff: prev }).errors));
 });
 
 test('① 四节齐全：接受历史写法「## 用户画像与偏好」', () => {
@@ -35,7 +49,7 @@ test('① 四节齐全：接受历史写法「## 用户画像与偏好」', () =
 });
 
 test('② 无占位符：圆括号「（保留全部旧结论）」被拒', () => {
-  const v = validateHandoff(GOOD.replace('1. 简报四节固定，节标题原样保留', '（保留全部旧结论）'));
+  const v = validateHandoff(GOOD.replace('1. 简报五节固定，节标题原样保留', '（保留全部旧结论）'));
   assert.ok(codes(v).includes('PLACEHOLDER'));
 });
 
@@ -80,7 +94,7 @@ test('④ 决策只增不删：画像条目变少同样被拒', () => {
 });
 
 test('④ 决策只增不删：第一棒（无上一份）跳过该校验', () => {
-  const v = validateHandoff('## 进展\n首棒\n## 决策\n（暂无）\n## 用户画像\n待观察\n## 开放问题\n无');
+  const v = validateHandoff('## 进展\n首棒\n## 决策\n（暂无）\n## 用户画像\n待观察\n## 开放问题\n无\n## 副作用\n无');
   assert.equal(v.ok, true, JSON.stringify(v.errors));
   assert.equal(v.checks.monotonic.decisions.prev, null);
 });
@@ -104,8 +118,9 @@ test('⑤ 指针有效：默认用真实文件系统判断（仓库内文件为�
 
 test('辅助函数：parseSections / countItems / findPointers 边界', () => {
   const s = parseSections(GOOD);
-  assert.deepEqual(Object.keys(s), ['进展', '决策', '用户画像', '开放问题']);
+  assert.deepEqual(Object.keys(s), ['进展', '决策', '用户画像', '开放问题', '副作用']);
   assert.equal(countItems(s.决策), 3);
+  assert.equal(countItems(s.副作用), 1);
   assert.equal(countItems(''), 0);
   assert.equal(countChars('  a b\n c '), 3);
   assert.deepEqual(findPointers('a -> x/y.md#z b'), ['x/y.md']);

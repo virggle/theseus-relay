@@ -255,12 +255,25 @@ function renderBackstage() {
     card.className = 'bs-card' + (live ? ' live' : '');
     const qHtml = (b.logQueries || []).map(q =>
       `<div class="bs-sub" style="color:var(--teal)">翻日志：「${esc(q.query)}」→ ${q.hits.length} 条命中</div>`).join('');
+    // H0：逐步显示每棒的 calls、返回分类（ack/info）与接棒原因
+    const REASON = { 'reply': '给出回答 → 链终止', 'info-return': '信息型返回驱动新棒', 'ack-aggregate': '确认聚合交接', 'budget': '任务级预算触顶' };
+    const reason = b.handoffReason ? REASON[b.handoffReason] || b.handoffReason : '';
+    const callsHtml = (b.calls || []).map(c => {
+      const cls = c.class === 'ack' ? '确认型' : '信息型';
+      const color = c.denied ? 'var(--amber)' : c.class === 'ack' ? 'var(--teal)' : 'var(--accent)';
+      return `<div class="bs-sub">🔧 <b>${esc(c.tool)}</b> <code>${esc(JSON.stringify(c.args || {}).slice(0, 80))}</code><br>` +
+        `<span style="color:${color}">返回·${cls}</span> ${c.ok ? '✓' : '✗'} ${esc(c.summary || '')}` +
+        (c.artifact ? ` · 全文：<a href="/${esc(c.artifact)}" target="_blank" style="color:var(--accent)">-> ${esc(c.artifact)}</a>` : '') + `</div>`;
+    }).join('');
+    const writesHtml = (b.writes && b.writes.length) ? `<div class="bs-sub" style="color:var(--amber)">副作用账本：写入 ${b.writes.map(w => esc(w.target)).join('、')}</div>` : '';
+    const driving = b.drivingInput || b.userMessage || '';
     card.innerHTML = `
       <h4>${live ? '<span class="dot"></span>' : ''}第${b.agentId}棒 ${live ? '· 当前在棒' : '· 已离场'}</h4>
-      <div class="bs-sub">输入 = ${b.agentId === 1 ? '（第一棒，无简报）' : '第' + (b.agentId-1) + '棒简报（' + (b.prevHandoff || '').length + ' 字）'} + 用户消息</div>
-      ${qHtml}
-      <details class="bs-detail"><summary>看它留下的工作简报（下一棒的全部世界）</summary><div class="bs-pre">${fmt(b.handoff || '（第一棒）')}</div></details>
-      <details class="bs-detail"><summary>看它读到的完整输入</summary><div class="bs-pre">【用户消息】\n${esc(b.userMessage)}\n\n【工作简报】\n${fmt(b.prevHandoff || '（无，第一棒）')}</div></details>
+      <div class="bs-sub">输入 = ${b.agentId === 1 ? '（第一棒）用户消息' : '第' + (b.agentId-1) + '棒简报（' + (b.prevHandoff || '').length + ' 字）+ 驱动输入'}</div>
+      ${qHtml}${callsHtml}${writesHtml}
+      ${reason ? `<div class="bs-meta" style="color:var(--accent)">接棒原因：${esc(reason)}</div>` : ''}
+      <details class="bs-detail"><summary>看它留下的工作简报（下一棒的全部世界）</summary><div class="bs-pre">${fmt(b.handoff || '（未留存）')}</div></details>
+      <details class="bs-detail"><summary>看它读到的驱动输入</summary><div class="bs-pre">${esc(String(driving).slice(0, 2000))}</div></details>
       ${b.rejected ? '<div class="bs-meta">⛔ 简报未过基底校验（已重派，仍不过则兜底重写）：' + esc((b.validation && b.validation.errors || []).map(e => e.msg).join('；') || '未知原因') + '</div>' : ''}${b.degraded ? '<div class="bs-meta">⚠ 本棒格式降级，简报为兜底生成</div>' : ''}${b.salvaged ? '<div class="bs-meta">⚠ 本棒输出截断，正文已自动抢救</div>' : ''}`;
     list.appendChild(card);
   }
@@ -303,6 +316,10 @@ async function sendTurn(text) {
     thinking.remove();
     let extra = '';
     for (const q of data.logQueries || []) extra += `<span class="chip">翻日志：「${esc(q.query)}」命中 ${q.hits.length} 条</span>`;
+    if (data.chain) {
+      extra += `<span class="chip">本链 ${data.chain.batons} 棒 · $${Number(data.chain.costUsd || 0).toFixed(4)}</span>`;
+      if (data.chain.status === 'budget_stopped') extra += `<span class="chip warn">任务触顶停机（${esc(data.chain.stoppedReason === 'maxCost' ? '成本上限' : '棒数上限')}）</span>`;
+    }
     if (data.degraded) extra += '<span class="chip warn">本棒输出降级</span>';
     if (data.rejected) extra += '<span class="chip warn">简报未过基底校验：' + esc((data.validation && data.validation.errors || []).map(e => e.msg).join('；') || '未知原因') + '</span>';
     if (data.salvaged) extra += '<span class="chip warn">输出截断，已自动抢救正文</span>';

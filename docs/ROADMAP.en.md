@@ -144,7 +144,7 @@ Passing criterion: one click produces the dual-track quality-vs-turn curve.
 
 Passing criterion: a 50-baton session runs with two models mixed per rules, fully annotated on the panel.
 
-## v0.2 Tool batons (= H0, to be rewritten per the new granularity)
+## v0.2 Tool batons (= H0, implemented 2026-09-20)
 
 > Tracks served: P4 Transactions (side-effect ledger) · P1 Cost (task-level budget and oscillation detection) · P2 Stability (bounded input)
 
@@ -159,6 +159,8 @@ Passing criterion: a 50-baton session runs with two models mixed per rules, full
 Key design: **the evidence of tool calls lands in the substrate; the intent of tool calls goes into the brief.** The worker is stateless, but the world has state.
 
 Passing criterion: a 20-step task runs to completion with no in-baton loop anywhere, and the panel shows each baton's calls and reason for handing off step by step; the "evidence lands in the substrate" rule above must be verifiable — long tool output enters the brief as a summary plus a retrievable reference, with the full text only in the substrate, otherwise "bounded context" dies the moment tool batons arrive.
+
+**Implemented (H0, 2026-09-20)**: single-chain runner `src/task.js` (`runChain`, one user message drives the whole chain) + return classification and ack aggregation `src/returns.js` + the minimal tool set `src/tools.js` (search_files / read_file / write_file; path guarding belongs to scripts, writes record their target, permissions granted per baton via whitelist) + brief extended to five sections (`src/validate.js`, the side-effect ledger). v0.3a landed in the same pass: output over 1000 chars persists in full to `data/artifacts/<sid>/`, and the baton sees only a summary + a `->` pointer; task-level budget `maxBatonsPerTask=12` / `maxCostPerTaskUsd=0.5` stops the chain with a report on reaching the cap (substrate-generated, zero tokens), never throwing; the panel shows each baton's calls, return classification (ack/info) and handoff reason (reply / info-return / ack-aggregate / budget). `node --test` 51 checks all green; keyless mock integration (`MOCK_CHAIN=1`) runs the full three-baton chain "write+search → read → answer", with the measured driving input at 517 chars vs 5270 chars of raw output.
 
 ## v0.3a Substratization · evidence persisted, intent carried (prerequisite of H0)
 

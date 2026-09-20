@@ -45,6 +45,15 @@ function usd(tokens, pricePerMillion) {
 }
 
 /**
+ * 单棒成本（美元）：任务级预算（H0 maxCostPerTask）按棒累加用。
+ * 口径与 computeCost 的接力侧一致：全价输入 + 全价输出，不引入缓存假设。
+ */
+export function batonCostUsd(telemetry = {}, model = '') {
+  const p = priceOf(model);
+  return usd(telemetry.inputTokens || 0, p.in) + usd(telemetry.outputTokens || 0, p.out);
+}
+
+/**
  * 会话成本双账本。
  * @param {object} o { batons, log, model }
  * @returns 累计序列 series:[{n, relay, single}] 与两侧总计，单位美元
