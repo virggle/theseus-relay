@@ -6,13 +6,13 @@
 
 ## One-line positioning
 
-**Ralph Loop solves "the task doesn't fit in one go"; Theseus solves "the conversation goes stale as it goes long".** The core wager is the same — fresh context + externalized state > one ever-bloating session — but the philosophy of the memory carrier is opposite: Ralph says "disk is state"; Theseus says "the linguistic compression is state". After v0.3 substratization, the two converge on "disk is state".
+**Ralph Loop solves "the task doesn't fit in one go"; Theseus solves "the conversation goes stale as it goes long".** The core wager is the same — fresh context + externalized state > one ever-bloating session — but the philosophy of the memory carrier is opposite: Ralph says "disk is state"; Theseus says "the linguistic compression is state". After v0.3 substratization, the two converge on "disk is state". **Addendum 2026-09-20**: with the driving signal changed to "any input event" (tool returns included, see PROTOCOL §2.1), Theseus moves squarely into Ralph's task-driven territory; the difference between them is no longer "who drives the chain" but "does state live on disk or in a linguistic compression" — and even that converges after v0.3.
 
 ## Comparison table
 
 | Dimension | Theseus Relay | Ralph Loop (Huntley, 2025-07) | Claude Code `/compact` | Multi-agent handoff (Swarm-style) | LangGraph checkpointer |
 |-----------|--------------|-------------------------------|------------------------|----------------------------------|------------------------|
-| Driving signal | Each user message = one baton (conversation-driven) | The same PROMPT.md re-run until done (task-driven) | Context nearing the ceiling (passive trigger) | Division of labor (topology-driven) | Graph node execution (flow-driven) |
+| Driving signal | **Any input event = one baton**: user messages and tool returns are equal (since 2026-09-20; previously purely conversation-driven) | The same PROMPT.md re-run until done (task-driven) | Context nearing the ceiling (passive trigger) | Division of labor (topology-driven) | Graph node execution (flow-driven) |
 | Memory carrier | The brief (linguistic compression, lossy, quality guaranteed by protocol) | Disk (git / plan.md / the code itself, lossless) | In-session summary (implicit, no quality guarantee) | Raw context or free text | Graph state (structured, flat) |
 | Transmission protocol | Structured schema + mechanical validation + append-only | None; conventionally-agreed files | None | No schema; free semantics | No semantic layering |
 | Information-loss model | Explicit: lossy budget + discard priority | Implicit: disk assumed lossless | Implicit: compaction is a side effect | Undefined | Undefined |

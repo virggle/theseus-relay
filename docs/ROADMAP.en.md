@@ -4,6 +4,59 @@
 
 > The final form of Theseus Relay is not a chat box but a **relay runtime**: stateless workers take batons under a protocol and complete long-horizon tasks on a stateful substrate. This document is the ladder — each rung stops at "minimally runnable", and is annotated with the value tracks it serves (P1–P6, defined in [PURPOSES.en.md](PURPOSES.en.md)).
 
+## Direction reset: from conversation relay to a hive (2026-09-20)
+
+> Three decided rules + four milestones numbered H. **This section supersedes the scheduling of v0.2 and everything after it**; how the old entries are disposed of is in the table at the end of this section.
+
+### The root change: the driving signal
+
+**Old: one user message = one baton.** The system is passive — when the user stops talking, the chain stops there. The whole project could therefore only demonstrate "how to swap people mid-chat", never "how a task runs itself". That is why it looked half-built for so long.
+
+**New: any input event = one baton, tool returns included.** For the first time the system can roll forward without the user. The protocol-level definition is in PROTOCOL §2.1.
+
+### Rule one: granularity — a set of mutually independent calls = one baton
+
+- Criterion: **does the next action depend on some tool call's return value** (PROTOCOL §2.1). If yes, hand off; if no, emit the batch inside this baton
+- Ack-type returns (write success/failure, exit codes, rows affected) are aggregated by the substrate into one line — **do not open a baton per acknowledgement**
+- Every write must carry an identifiable `write_target`; concurrent batons must have disjoint write targets, **checked statically, conflict fails immediately** — a deterministic rule that belongs to the script layer
+
+### Rule two: review granularity — stage-level, but a stage is not defined by taste
+
+- One review baton follows each stage's output, not every execution baton (too expensive, and it binds rework signals too finely)
+- **Stage granularity = the granularity that keeps a review baton's input bounded**: the artifact list must fit into one brief plus one packing budget. Otherwise the review baton's input grows into another long context, violating P2's bounded context head-on
+
+### Rule three: self-improvement batons (with guardrails)
+
+One kind of baton in the swarm produces no deliverable and only optimizes the allocation rules and the structure of the task board / document system; how much execution, review and planning is needed is apportioned by that baton itself. Three guardrails:
+
+1. **Immutable core**: the protocol's four invariants (PROTOCOL §3), the substrate validator, and baton-level transactional semantics — it may not change them directly, only propose an ADR for a human to confirm
+2. **An improvement proposal must carry before/after metrics; without evidence, reject it** — the §4 validation idea lifted to the meta layer
+3. **A hard quota cap** (start at 10–15% of total batons, calibrate empirically) — to stop the swarm degenerating into "all allocation batons, nobody working"
+
+Its KPIs need no new construction: telemetry and the cost double-ledger (v0.1.2) plus the future retention probe (v0.1.4) are the source. **That is also why it sits at H3: before the metrics land, it can only spin.**
+
+### The four milestones
+
+| Stage | Content | Passing criterion |
+|-------|---------|-------------------|
+| **H0** | Single-chain stepping: batch-baton semantics + the two kinds of return values (PROTOCOL §2.1) | A 20-step task completes, with no in-baton ReAct loop anywhere, and the panel shows every step |
+| **H1** | Fan-out and join: `write_target` + static write-partition checks + join / timeout / partial failure | Three-way parallel → D aggregates; conflicts are refused by the engine |
+| **H2** | Stage-level review + a decision layer (placeheld by a rule stub, later swapped for a decision-only model returning a probability distribution) | One review per stage; every decision has acceptable latency and is 100% traceable |
+| **H3** | Self-improvement batons (three guardrails) + self-sustaining operation | Seed one goal and it runs to done, with improvement proposals carrying their own before/after metrics |
+
+### Disposition of the old entries
+
+| Old entry | Disposition |
+|-----------|-------------|
+| v0.2 "loop budget" (6 round trips / 60% window / 90 s / dead-loop detection / wrap-up reserve) | **Void**. There is no in-baton loop any more, so the parameters have nothing to act on (PROTOCOL §2.1) |
+| "What we will not do": "No parallel batons" | **Lifted**. Parallelism is the definition of a hive; write conflicts are instead constrained by a static check that batons' `write_target`s are disjoint (H1) |
+| v0.3 Substratization | **Promoted to a prerequisite**. With more batons, unless the brief degrades into "pointers + intent", cost and latency both explode — it is no longer "later" |
+| v0.4 Review batons | Granularity becomes **stage-level** (rule two); the review baton's advantage of "structurally never seeing the writing process" is unchanged |
+| v0.5 Protocol independence | Unchanged, folded into H2 / H3 |
+| R1 (shared-counter defect) | **Structurally dissolved by H0**: three kinds of calls no longer compete for one budget inside a baton; until H0 lands it remains a real defect in the v0.1 code |
+| The "crossover at baton 35" | **Void** (calibrated under the old granularity); recalibrate after H1; do not cite it before that |
+| The v0.1.3–v0.1.7 measurement layer | Unchanged, and with a new layer of meaning: it is the self-improvement baton's source of KPIs |
+
 ## v0.1 Conversation relay (current, implemented)
 
 > Tracks served: P1 Cost (bounded input) · P3 Audit (live panel) · P4 Transactions (baton-level fault isolation)
@@ -27,7 +80,7 @@ Why it comes before tool batons: **the field-tested traps — anti-placeholder, 
 
 **Pending revisions** (details in "Revisions and prerequisites" at the end): R5 counts items per line and can false-reject; R7 records fallback briefs without blocking them.
 
-> **v0.1.2–v0.1.7 form the measurement & multi-purpose layer**: no hard dependency on v0.2 tool batons — they can interleave. Each stops independently at "minimally runnable". Ordering constraints live in one place: the §Execution order of "Revisions and prerequisites" at the end. Two of them are counter-intuitive: v0.1.5's L0 pointer form depends on v0.3's persistence rules (until then L0 degrades to a hard-compression tier); and retrieval quality (F1) must land before v0.1.4 — otherwise the decay probe cannot separate out the "retrieval gave nothing" failure mode.
+> **v0.1.2–v0.1.7 form the measurement & multi-purpose layer**: no hard dependency on v0.2 tool batons — they can interleave. Each stops independently at "minimally runnable". Ordering constraints live in one place: the §Execution order of "Revisions and prerequisites" at the end. Two of them are counter-intuitive: v0.1.5's L0 pointer form depends on v0.3's persistence rules (until then L0 degrades to a hard-compression tier); and retrieval quality (F1) must land before v0.1.4 — otherwise the decay probe cannot separate out the "retrieval gave nothing" failure mode. **Addendum (2026-09-20)**: the measurement layer is also the H3 self-improvement baton's only source of KPIs — do not treat it as optional decoration.
 
 ## v0.1.2 Telemetry and the cost double-ledger
 
@@ -39,7 +92,7 @@ Why it comes before tool batons: **the field-tested traps — anti-placeholder, 
 
 Passing criterion: the panel can answer, in real time, "what would this session have cost monolithically by now".
 
-**Status**: shipped — `src/pricing.js` (price table + monolithic baseline + token estimation) → per-baton telemetry in `relay.js` (tokens, latency, model, log-lookup count, salvage/rejected/re-dispatch) → `cost` series returned by `/api/state` and `/api/turn` → "cost double-ledger" card with dual curves in the backstage panel. `tests/cost.test.js` re-derives the arithmetic by hand and pins down one fact: **under the current rates, a two-baton session is more expensive on relay; the crossover sits around baton 35** — and the panel shows the loss as readily as the win.
+**Status**: shipped — `src/pricing.js` (price table + monolithic baseline + token estimation) → per-baton telemetry in `relay.js` (tokens, latency, model, log-lookup count, salvage/rejected/re-dispatch) → `cost` series returned by `/api/state` and `/api/turn` → "cost double-ledger" card with dual curves in the backstage panel. `tests/cost.test.js` re-derives the arithmetic by hand and pins down one fact: **under the current rates, a two-baton session is more expensive on relay; the crossover sits around baton 35** — and the panel shows the loss as readily as the win. (**Note 2026-09-20**: that number was calibrated under the old granularity and is void after the granularity change; do not cite it as a conclusion until recalibrated.)
 
 **Pending revisions** (details at the end): R3 — the ledger collects `cached` but never bills with it, systematically overstating relay cost; R4 — the brief sits between fixed blocks, so 449 characters of fixed content can never hit the prefix cache. Both belong to this rung's rates; they must ship in one pass, then the crossover is recomputed.
 
@@ -91,38 +144,42 @@ Passing criterion: one click produces the dual-track quality-vs-turn curve.
 
 Passing criterion: a 50-baton session runs with two models mixed per rules, fully annotated on the panel.
 
-## v0.2 Tool batons
+## v0.2 Tool batons (= H0, to be rewritten per the new granularity)
 
-> Tracks served: P4 Transactions (side-effect ledger) · P1 Cost (budget and oscillation detection) · P2 Stability (loop budget)
+> Tracks served: P4 Transactions (side-effect ledger) · P1 Cost (task-level budget and oscillation detection) · P2 Stability (bounded input)
 
-- The ACT phase may attach tools (file read/write, command execution, search)
+- The ACT phase emits tool-call requests (file read/write, command execution, search)
 - New fifth brief section: the **side-effect ledger** — every irreversible operation this baton performed, item by item; the next baton must know "what has already been changed in the world" before taking over
 - Tool permissions granted per baton (read/write separation, allowlist for dangerous operations)
 - **Deterministic quality gates (backpressure)**: output passes tests / lint / build first — zero tokens, zero bias, run every time; on failure, re-dispatch immediately, do not escalate to a review baton
-- **Loop budget (PROTOCOL §2.1 — a prerequisite for tool batons)**: in-baton loop cap (default 6 tool round trips), context budget (≤ 60% of the model window), per-baton wall clock (≤ 90 s), dead-loop detection (same tool + same args ≥ 2 times). Any trigger fires → **wrap up per §2.1 first** (produce a complete reply + an updated brief + a hook in "Progress / Open questions"), then force the handoff, rather than let context keep inflating. The budget splits into a **work allowance + a wrap-up reserve**; the reserve must not be consumed by normal working rounds, and overrunning within the reserve during wrap-up is allowed. Thresholds and the reserve's share are calibrated empirically (see the "Remaining, to be calibrated empirically" subsection of "Revisions and prerequisites"). **Without these parameters, tool batons degrade back into a long-context monolith**, and the "bounded context" claim dies with it
-- **Cost and oscillation detection**: baton-count cap, per-task cost cap (reusing v0.1.2 telemetry); decision oscillation (a rejected option re-proposed) is detected by the substrate diffing the decision ledger, with an alert (PROTOCOL §6)
+- **Baton granularity (rewritten 2026-09-20)**: in-baton ReAct loops are abolished in favour of PROTOCOL §2.1's static criterion — **does the next step depend on some call's return value**. The whole old "loop budget" set (6 tool round trips / 60% window / 90 s / dead-loop detection / wrap-up reserve) **is void accordingly**. Tool batons are therefore easier to write: no dynamic budget system that has to be calibrated empirically
+- **Write targets and write partitions**: every write carries a `write_target`; concurrent batons must have disjoint write targets, checked statically by the substrate. This is the only new guardrail in this rung
+- **Task-level budget and oscillation detection**: baton-count cap, per-task cost cap (reusing v0.1.2 telemetry) — note these are now **task-level**, no longer per baton; decision oscillation (a rejected option re-proposed) is detected by the substrate diffing the decision ledger, with an alert (PROTOCOL §6)
 
 Key design: **the evidence of tool calls lands in the substrate; the intent of tool calls goes into the brief.** The worker is stateless, but the world has state.
 
-Passing criterion: a tool baton hands off automatically after 6 steps, and the panel reports the reason for every trigger (loop count / context / wall clock / dead loop). **The "evidence lands in the substrate" rule above must be verifiable**: long tool output enters the brief as a summary plus a retrievable reference, with the full text only in the substrate — otherwise "bounded context" dies the moment tool batons arrive.
+Passing criterion: a 20-step task runs to completion with no in-baton loop anywhere, and the panel shows each baton's calls and reason for handing off step by step; the "evidence lands in the substrate" rule above must be verifiable — long tool output enters the brief as a summary plus a retrievable reference, with the full text only in the substrate, otherwise "bounded context" dies the moment tool batons arrive.
 
-## v0.3 Substratization
+## v0.3 Substratization (a prerequisite of H0, no longer optional)
 
 > Tracks served: P1 Cost (thinner briefs) · P6 Persistence (real state on disk, memory layering)
 
 - The brief degrades from prose to pointers: state-file paths, task-list IDs, SSOT document locations
-- All real state lives on disk; the brief records only "pointers + why + next step"
+- All real state lives on disk; the brief records only "pointers + why + next step" — and, after §2.1, "intent not yet redeemed"
 - **The persistence rule is the compression rule** (PROTOCOL §3 Invariant 4): persisted → the brief keeps a pointer, disposable at any time; not persisted → the only copy, never dropped. No on-the-spot judgment during compression
+- **Task board**: real state is organized as task-board documents (each task card carries a `write_target`). It is both the basis for splicing work and guaranteeing disjoint write partitions, and the artifact that H3's self-improvement baton optimizes
 - **Memory layering**: project memory lives in each project's own folder (SSOT documents); knowledge reusable across projects is distilled into skills loaded on demand — projects stay naturally isolated and don't consume brief budget
 - The brief's length cap drops accordingly (e.g. 400 characters) — the thinner, the more stable, the cheaper to rebuild
 
+**Why it was promoted to a prerequisite (2026-09-20)**: §2.1's granularity multiplies the number of batons, and each pays the fixed cost of "read a brief + write a brief". Unless the brief collapses into a pointer-style intent packet, cost and latency both explode.
+
 Passing criterion: when swapping the model on a baton makes no difference to output quality, this rung is done.
 
-## v0.4 Review batons and baton-level transactions
+## v0.4 Review batons and baton-level transactions (granularity now stage-level)
 
 > Tracks served: P4 Transactions (baton-level transactions) · P2 Stability (structurally unbiased review)
 
-- Execution batons / review batons alternate: execution produces; review re-checks carrying only the brief + a list of artifacts
+- **Stage-level review**: once execution batons deliver a stage's output, one review baton re-checks it — not one per execution baton (rule two). Stage granularity = the granularity that keeps a review baton's input bounded
 - The review baton's structural advantage: **it genuinely never saw the writing process** — no sunk cost, no ownership bias. This is a reviewer no single-agent architecture can build
 - **Division of labor**: anything the deterministic quality gates (v0.2) can catch never reaches a review baton — LLM review only handles semantic questions: naming, design coherence, "is it what was asked for". Cheap deterministic checks first, expensive probabilistic review second
 - Baton-level transactions: review fails → roll back to the previous brief and re-dispatch; the failed baton leaves no trace
@@ -141,7 +198,7 @@ Passing criterion: when swapping the model on a baton makes no difference to out
 
 | # | Finding | Nature | Tracks | Lands |
 |---|---------|--------|--------|-------|
-| R1 | Log lookup, validator re-dispatch and answering share one `for (i<3)` counter: 2 lookups + 1 rejection exhausts the budget and throws, discarding a reply already produced | Defect | P4 · P3 · P6 | v0.1 |
+| R1 | Log lookup, validator re-dispatch and answering share one `for (i<3)` counter: 2 lookups + 1 rejection exhausts the budget and throws, discarding a reply already produced | Defect | P4 · P3 · P6 | v0.1 · **structurally dissolved by H0** |
 | R2 | An over-budget `read_log` fails its guard and falls into the salvage branch, so the user sees raw JSON | Defect | P4 · P2 | v0.1 |
 | R3 | Telemetry collects `usage.cached` but the cost ledger never bills with it, while the monolithic side gets the full cache rate — the rates favour the monolith one-sidedly, making the crossover conservative | Rates | P1 | v0.1.2 |
 | R4 | The brief sits between fixed blocks: only 537 characters are cacheable prefix, leaving 449 characters of fixed content permanently uncacheable | Implementation | P1 · P5 | v0.1.2 |
@@ -156,7 +213,7 @@ R1 is not merely "one turn lost". It throws **before** `runTurn` returns, while 
 
 ### Why R3 and R4 ship together
 
-Both act on the v0.1.2 cost rates. R3 gives the relay the cache discount it can actually earn (using the endpoint-reported `cached` value, not an assumption); R4 raises the cacheable fixed portion from 537 to 1016 characters — measured: fixed content totals 1016 characters (537 before the brief, 449 after), the per-baton system prompt is 1786 characters, so reordering saves roughly 19% of input-side cost, and it is a pure reordering touching no protocol text. Shipping them separately would leave "crossover at baton 35" — a number pinned by TESTS.md §D — existing under two different rates, so both go in one pass, the crossover is recomputed, and the pinned test value follows.
+Both act on the v0.1.2 cost rates. R3 gives the relay the cache discount it can actually earn (using the endpoint-reported `cached` value, not an assumption); R4 raises the cacheable fixed portion from 537 to 1016 characters — measured: fixed content totals 1016 characters (537 before the brief, 449 after), the per-baton system prompt is 1786 characters, so reordering saves roughly 19% of input-side cost, and it is a pure reordering touching no protocol text. Shipping them separately would leave "crossover at baton 35" — a number pinned by TESTS.md §D — existing under two different rates, so both go in one pass, the crossover is recomputed, and the pinned test value follows. **Addendum 2026-09-20**: the real rate change comes from the granularity shift (PROTOCOL §2.1), so the sensible order is to recalibrate granularity first and then ship R3 / R4 — otherwise the crossover gets recalibrated twice.
 
 ### Why F1 precedes v0.1.4
 
@@ -165,7 +222,7 @@ v0.1.4's passing criterion requires the decay probe to separate "the brief never
 ### Already covered by the existing plan — unchanged
 
 - Moving long tool output out of context → v0.2's "evidence lands in the substrate, intent goes into the brief"; this round only adds a verifiable criterion to v0.2, leaving the design untouched
-- Pointer briefs and memory layering → v0.3, unchanged
+- Pointer briefs and memory layering → v0.3, unchanged (2026-09-20: moved ahead of H0, content unchanged)
 - "No vector database" → unchanged; F1 is implemented inside that boundary
 
 ### Execution order
@@ -178,7 +235,7 @@ v0.1.4's passing criterion requires the decay probe to separate "the brief never
 | — | v0.1.3 cross-session bootstrap (as planned) | Depends on none of the above; can run in parallel with batches 1–3 |
 | 4 | F1 retrieval quality | Must land before v0.1.4 |
 | — | R7(b), budget-threshold calibration | Measurement items, kept out of the batches: decide once there is data |
-| — | v0.1.4 → v0.1.5 → v0.1.6 → v0.1.7 → v0.2 (as planned) | v0.2 gains one criterion per the note above |
+| — | v0.1.4 → v0.1.5 → v0.1.6 → v0.1.7 → v0.2 (as planned) | **2026-09-20**: v0.2 is rewritten per the new granularity as H0, v0.3 is promoted to a prerequisite of H0, and everything after follows the four milestones in "Direction reset" |
 
 ### Decided (2026-09-12)
 
@@ -193,14 +250,19 @@ Two implementation consequences:
 
 **③ F1 boundary confirmed.** Both the stop-word list and log-prefix exclusion sit inside the safe zone of "no vector database"; F1 is implemented within that boundary.
 
+### Decided (2026-09-20, direction reset)
+
+The three decided rules (granularity / stage-level review / self-improvement batons) and their consequences are fully defined in the "Direction reset" section at the top. Two conclusions relevant here: **R1 is structurally dissolved by H0** (not fixed — it ceases to exist); and **the "crossover at baton 35" is to be recalibrated after H1**, until which the pinned value in TESTS.md §D is a stale rate.
+
 ### Remaining, to be calibrated empirically
 
-Out of scope for this round's decisions; settle once real session data exists: the per-baton log-lookup cap, the re-dispatch cap, **the wrap-up reserve's share of the total budget** (i.e. how much overrun is tolerated), and R7(b).
+Out of scope for this round's decisions; settle once real session data exists: the per-baton log-lookup cap, the re-dispatch cap, **the wrap-up reserve's share of the total budget** (i.e. how much overrun is tolerated), and R7(b). **Added 2026-09-20**: the task-level baton cap, the per-task cost cap, **the self-improvement baton's quota share** (start at 10–15%), and the maximum artifact volume of a stage (the concrete bound behind "a review baton's input stays bounded" in rule two).
 
 ## What we will not do
 
 - No vector database: the retrieval need is "find that one thing someone said" — n-gram suffices; leave the complexity to the substrate
-- No parallel batons: relay is serial by semantics; parallelism belongs to another protocol
+- ~~No parallel batons: relay is serial by semantics; parallelism belongs to another protocol~~ → **Lifted (2026-09-20)**: parallelism is the definition of a hive; write conflicts are instead constrained by a **static check** that batons' `write_target`s are disjoint ("Direction reset", H1)
 - No streaming output: emitting the complete JSON in one shot is the precondition for the salvager to work; we'd rather wait
 - No behavioral constraints at the prompt layer (when the substrate validator can express them): rules live in the harness, not the prompt — models cheat, scripts don't
+- **No decision model replacing the substrate validator** (added 2026-09-20): the decision layer may only take on "finite-option judgments that scripts cannot express", and its output must be persisted to the substrate log; the commit condition of baton-level transactions remains a script, always
 - No special-case code for a single track: any new feature must serve ≥2 tracks (PURPOSES §9); single-track requests go to the backlog freezer

@@ -8,8 +8,8 @@
 
 | Role | Lifecycle | What it sees |
 |------|-----------|--------------|
-| **Batons** | One user message is one lifetime; destroyed after answering | ① The previous baton's *Brief* ② The user's current message ③ (bounded) retrieved history fragments |
-| **Substrate** | Immortal | The complete log, all historical briefs, the retrieval index |
+| **Batons** | One handoff is one lifetime: destroyed after emitting "a set of tool calls + a brief" | ① The previous baton's *Brief* ② This baton's driving input (a user message **or** the previous tool call's return value) ③ (bounded) retrieved history fragments |
+| **Substrate** | Immortal | The complete log, all historical briefs, the task board and the retrieval index |
 | **User** | God's-eye view | Full log + backstage panel (every baton's input/output/retrieval fully auditable) |
 
 **Core invariant: the Brief is the only transmission medium between batons.** Whatever the brief loses is lost for real — all engineering effort in this system serves one goal: let what should survive survive, and let what should die die quickly.
@@ -19,36 +19,43 @@
 A turn must complete three things in order. None may be skipped:
 
 ```
-1. READ   Take in the brief + the user's message (this is the baton's entire world)
-2. ACT    Answer the user (may first run one bounded retrieval: {"action":"read_log","query":"…"}; repeated round trips inside ACT: see §2.1)
-3. WRITE  Output the updated brief (cumulative compression, not a this-turn recap)
+1. READ   Take in the brief + this baton's driving input (this is the baton's entire world)
+2. ACT    Emit a set of tool-call requests (degrades to a reply in the chat scenario; v0.1's bounded retrieval {"action":"read_log","query":"…"} belongs to this same step)
+3. WRITE  Output the updated brief: cumulative compression + next intent, not a this-turn recap
 ```
 
-The wire format is a single JSON: `{"reply": "...", "handoff": "..."}`. When model output is corrupted the substrate salvages it (see §6), but the contract with the model is always: emit the complete thing in one shot.
+The wire format is a single JSON: `{"reply": "...", "handoff": "..."}`. From H0 onwards, tool batons express their tool-call requests as a `calls` array (see §2.1). When model output is corrupted the substrate salvages it (see §6), but the contract with the model is always: emit the complete thing in one shot.
 
-## 2.1 In-baton loops vs. baton handoffs
+## 2.1 Baton boundaries: information-driven (rewritten 2026-09-20)
 
-ACT may contain several "think → act → observe" round trips (a ReAct loop). **A round trip is not a handoff.** There is one criterion only:
+ACT produces only two things: **a set of tool-call requests** and **a brief**. A single baton may emit several calls at once; whether to hand off between calls has one criterion only:
 
-> **Was the context rebuilt from zero?** A loop happens inside one baton: messages keep accumulating, and the previous round's reasoning and tool results are all still there. A handoff resets the new baton's world to "brief + new input" — every prior reasoning chain is discarded, only the brief survives.
+> **Does the next action depend on some tool call's return value?** If yes → stop here, write the brief, and hand off; a fresh baton takes the stage carrying the return value. If no → emit the whole batch inside this baton; do not open a baton per call.
 
-So "how many LLM calls were made" is not the criterion: six calls inside one baton is still one baton; switching models or handing off to a reviewer is a handoff even if it takes a single call.
+This replaces v0.1's criterion ("was the context rebuilt from zero") and, with it, the in-baton ReAct loop — there are no more repeated "think → act → observe" round trips inside one baton. The new criterion needs no runtime measurement: it is **static**. Look at whether the calls depend on each other and you know whether to stop.
 
-**Why loops stay inside the baton**: tool chains are causally continuous ("I grepped this line → therefore I edit that line"). Compressing that into a brief loses the chain, and rebuilding it costs another call. The price is O(n) context growth — which is exactly why loops must be bounded.
+**A whole set of governance parameters becomes void** (all v0.1): the in-baton loop cap (6 tool round trips), the context budget (60% of the model window), the per-baton wall clock (90 s), dead-loop detection, and the "work allowance + wrap-up reserve" split. No in-baton loop means no need for quantities that had to be calibrated empirically.
 
-**When a handoff is mandatory** (hitting a limit is not a discard: persist what matters first per Invariant 4, write the progress into the brief, and let the next baton continue from there):
+### Two kinds of return values
 
-| Trigger | Default threshold | Why |
-|---------|-------------------|-----|
-| In-baton loop count | ≥ 6 tool round trips | Beyond that it is a monolith in relay clothing |
-| In-baton context | ≥ 60% of the model window | Leave 40% for output and for the compress-into-brief call |
-| Per-baton wall clock | ≥ 90 s | A stuck baton gets replaced, not waited on |
-| Dead loop | Same tool + same args ≥ 2 times | The cheapest check there is: zero tokens |
-| Semantic boundary | Executor baton → reviewer baton | The reviewer must structurally not have seen the writing process (§7, extension 5) |
-| Side effects | After any irreversible action | The side-effect ledger travels with the brief (§7, extension 2) |
-| Model switch | Switching model means switching baton | The brief is the only medium (§7, closing paragraph) |
+| Kind | Examples | What the substrate does |
+|------|----------|-------------------------|
+| **Ack-type** | Write success/failure, exit codes, rows affected | Aggregate into one line of the next brief, e.g. "3 writes: 2 ok, 1 EACCES" — **do not open a baton per acknowledgement** |
+| **Info-type** | Search hits, file contents, error details | This is "new information": it triggers the handoff, and the next baton carries it |
 
-**Implementation status**: v0.1 hard-codes the in-baton loop cap at 3 calls (2 log lookups + 1 re-dispatch), with no configurable budget and no dead-loop detection. **Correction (2026-09-12)**: in the code those three call types share a **single** counter, so the "2 log lookups + 1 re-dispatch" combination cannot actually occur; and exhausting the budget throws rather than wrapping up and handing off as this section describes — i.e. this section's promise never landed in v0.1 (see R1 in ROADMAP's "Revisions and prerequisites"). v0.2 tool batons must turn these into explicit parameters (loop cap / context budget / wall clock / dead-loop detection) and implement the "work allowance + wrap-up reserve" split and the wrap-up semantics — otherwise tool batons degrade back into a single long-context agent, and the "bounded context" claim becomes fiction.
+### Two hard clauses that follow
+
+1. **Write-target declaration**: every write must have an identifiable target (statically derivable from the tool signature, or declared explicitly as `write_target` on the task card). When several batons run concurrently, their write targets must be disjoint; the substrate checks this **statically** and a detected conflict fails immediately. This check is deterministic and **belongs to the script layer** — not to a decision model, and certainly not to a generative LLM (see §7, extension 6, for the hierarchy).
+2. **The only loop left inside a baton**: the substrate's validator re-dispatch (§4 / §6) is mechanical repair, not a ReAct loop, so this section does not constrain it — but it still needs a cap (ROADMAP R1 / R7).
+
+### The brief's semantics shift
+
+Once a baton no longer spans tool calls, it no longer carries "what I did over these dozen steps" but **what comes next, why, and on what evidence**. The brief thus moves from "compressed history" toward an **intent packet**: history belongs to the task board and the substrate, while the brief keeps only "pointers + intent + the decision ledger". The four invariants of §3 are unchanged, and matter more than ever — **anything that exists only inside a brief dies the moment the baton hands over.**
+
+### How this section evolved (honest record)
+
+- **v0.1 criterion** (was the context zeroed): allowed in-baton ReAct loops, bounded by the four parameters above. Its promise never landed — the 2026-09-12 code review found that log lookup, validator re-dispatch and answering share one `for (i<3)` counter (ROADMAP R1), and exhausting the budget threw instead of wrapping up.
+- **Current criterion** (this section): in-baton loops are abolished in favour of a static information-dependency criterion. This is not a tuning of those parameters but the removal of the need for them — R1 therefore **dissolves structurally**; until H0 lands, however, it remains a real defect in the v0.1 code.
 
 ## 3. Brief Schema
 
@@ -69,6 +76,8 @@ A fixed four-section structure; every generation must output all of it:
 4. **Persist first, pointers are disposable**: disposability is determined by "is it persisted to the substrate" — **not by on-the-spot judgment**. Anything already persisted appears in the brief as a one-line pointer and may be dropped at any time (the substrate can restore it; losing it costs nothing). Anything not persisted is the only copy and must stay in the brief. This implies an obligation on every WRITE: **new decisions/constraints that matter must be persisted first, then compressed.**
 
 Invariant 4 is the bridge from prose briefs to pointer briefs (ROADMAP v0.3): it turns "what may I drop when compressing" from an on-the-spot model judgment (a source of variance) into a mechanically executable rule — persisted, feel free to drop; not persisted, never drop.
+
+**Intent-packet addendum (2026-09-20)**: after §2.1, the brief must also carry "intent not yet redeemed" — a batch of calls is emitted before its return values exist, so what gets written here is "what comes next, and on what grounds". Intent is not yet a decision: it goes into "Open questions" first, and is promoted into "Decisions" only once it is redeemed and settled.
 
 ## 4. Substrate Validation (the mechanical layer)
 
@@ -108,13 +117,14 @@ The full log never automatically enters any baton's context. A baton may retriev
 
 ## 7. Why this is the seed of a harness
 
-The current implementation is "conversation relay", but the protocol already contains every element of a harness, missing only five extension points:
+The current implementation is "conversation relay", but the protocol already contains every element of a harness, missing only six extension points:
 
 1. **Substrate validator (v0.1.1)**: the five checks of §4 move from paper into code — the smallest possible increment, yet the foundation of all mechanical trust that follows
-2. **Tool batons (v0.2)**: the ACT phase may call tools, and a **side-effect ledger** must be written into the brief ("which irreversible operations this baton performed") — the precondition for stateless workers to do real work safely
-3. **Substratization (v0.3)**: the brief degrades from prose to **pointers** (state-file paths, task-list IDs); real state lives on disk. The thinner the brief, the more stable the system. Invariant 4 is its protocol-level basis
+2. **Tool batons (v0.2 / H0)**: the ACT phase emits tool-call requests, and a **side-effect ledger** must be written into the brief ("which irreversible operations this baton performed") — the precondition for stateless workers to do real work safely
+3. **Substratization (v0.3)**: the brief degrades from prose to **pointers** (state-file paths, task-list IDs); real state lives on disk. The thinner the brief, the more stable the system. Invariant 4 is its protocol-level basis; the intent-packet semantics of §2.1 promote it to a prerequisite of H0
 4. **Deterministic quality gates (v0.2+)**: tool-baton output passes deterministic checks first (tests, lint, build — zero tokens, zero bias, run every time); LLM review only handles the semantics the gates can't reach. The order is not negotiable: **cheap deterministic checks before expensive probabilistic review**
-5. **Review batons (v0.4)**: execution batons and review batons alternate. A review baton's review is genuinely unbiased — it structurally never saw the writing process, which no single-agent architecture can offer
+5. **Review batons (v0.4)**: once a stage delivers its output, a baton that never saw the writing process re-checks it. Its review is genuinely unbiased — something no single-agent architecture can offer
+6. **Decision layer (H2)**: the high-frequency judgments between batons (how many batons to dispatch, whether an error means retry or re-dispatch, whether results are complete) do not need generated text. This layer sits between two extremes: **anything expressible as a deterministic rule (for instance, whether batons' `write_target`s intersect) stays in scripts**; real content generation stays with LLMs; the middle band of "finite options + non-determinism" belongs to **decision-specialized models that return only a probability distribution over candidates**, placeheld by a rule stub at first and swapped in later. Two disciplines: **it must not replace §4's substrate validator** (that is the commit condition of baton-level transactions and must remain a script); **every decision's output, probabilities included, must be persisted to the substrate log** — which is what makes this layer serve both the P1 Cost and P3 Audit tracks
 
 A further implication: once the brief schema is versioned, **batons can relay across models and vendors** (baton A does chores on a cheap model, critical batons switch to a strong one) — cost scheduling becomes a protocol-layer concern.
 
@@ -122,6 +132,8 @@ A further implication: once the brief schema is versioned, **batons can relay ac
 
 - Brief compression variance is high: different batons judge "what matters" differently; long-horizon information decay is unavoidable (this is a feature and a bug)
 - Long-horizon decay is unmeasured: periodically run a recall spot-check of "substrate ground truth vs. current brief", turning decay from a confession into an observable metric (to be built → scheduled as ROADMAP v0.1.4 decay probe)
+- Baton count and fixed overhead grow together: with the granularity now "a set of mutually independent calls = one baton", the same task splits into more batons, and each pays the fixed cost of "read a brief + write a brief". **The "crossover at baton 35" pinned by this §8 and by TESTS.md §D was calibrated under the old granularity; it is void — do not cite it until recalibrated** (recalibration is scheduled after H1 in ROADMAP's "Direction reset")
 - Chinese 2-gram retrieval is low-fidelity: fine for a demo, not for production
 - 2–3 LLM calls per baton (answer + salvage fallback) — more expensive than a single continuous-agent conversation. What you buy is bounded context and auditability (since v0.1.2 this is no longer a confession: the panel shows the simulated monolithic spend live — short sessions really are more expensive, the crossover sits around baton 35; that rate carries two pending revisions, see "Revisions and prerequisites" R3 / R4 in ROADMAP, and this number will change once they land)
 - The "2 lookups per baton" quota was once misread by a model as requiring user approval — tool semantics must be nailed down in the prompt
+- Concurrent batons cannot perceive each other: their write targets must be statically disjoint (§2.1), but races of the "the world I read has expired" kind (another baton concurrently modified the same region) still have no protocol-level answer — left to H1 for empirical work
