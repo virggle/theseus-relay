@@ -23,7 +23,7 @@ export const REPO_ROOT = path.resolve(__dirname, '..');
 
 // ---------- H0 常量（默认值，可被 opts 覆盖） ----------
 
-export const TASK_BUDGET = { maxBatonsPerTask: 12, maxCostPerTaskUsd: 0.5 };
+export const TASK_BUDGET = { maxBatonsPerTask: 24, maxCostPerTaskUsd: 0.5 }; // 棒数上限须容得下验收口径「20 步任务跑完」，余量待实测标定（ROADMAP）
 export const MAX_CALLS_PER_BATON = 8; // 防异常输出刷爆基底；正常一批调用远小于此
 export const ARTIFACT_MAX_CHARS = 1000; // 超过则全文落基底（v0.3a），棒内只见摘要 + 指针
 export const ARTIFACT_SUMMARY_CHARS = 300;

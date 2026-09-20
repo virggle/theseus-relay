@@ -160,7 +160,7 @@
 
 判断标准：一个 20 步任务全部跑完，全程无棒内循环，面板能逐步显示每棒的调用与接棒原因；且上述「证据落基底」必须可验证——工具长输出以「摘要 + 可取回引用」进入简报，全文只落基底，否则"上下文有界"在工具棒上立刻失效。
 
-**落地情况（H0，2026-09-20）**：单链步进 runner `src/task.js`（`runChain`，一条用户消息跑完整条链）+ 返回值分类与确认聚合 `src/returns.js` + 最小工具集 `src/tools.js`（search_files / read_file / write_file；路径守卫归脚本，写操作记录 target，权限白名单按棒授予）+ 简报扩五节（`src/validate.js`，副作用账本）。v0.3a 同步落地：长输出超 1000 字全文落 `data/artifacts/<sid>/`，棒内只见摘要 + `->` 指针；任务级预算 `maxBatonsPerTask=12` / `maxCostPerTaskUsd=0.5` 触顶停机出报告（基底生成、零 token），不抛错；面板逐棒显示 calls、返回分类（确认型/信息型）与交接原因（reply / info-return / ack-aggregate / budget）。`node --test` 51 项全绿；mock 无 key 联调（`MOCK_CHAIN=1`）跑通「写+搜 → 读 → 回答」三步链，实测驱动输入 517 字 vs 原文 5270 字。
+**落地情况（H0，2026-09-20）**：单链步进 runner `src/task.js`（`runChain`，一条用户消息跑完整条链）+ 返回值分类与确认聚合 `src/returns.js` + 最小工具集 `src/tools.js`（search_files / read_file / write_file；路径守卫归脚本，写操作记录 target，权限白名单按棒授予）+ 简报扩五节（`src/validate.js`，副作用账本）。v0.3a 同步落地：长输出超 1000 字全文落 `data/artifacts/<sid>/`，棒内只见摘要 + `->` 指针；任务级预算 `maxBatonsPerTask=24` / `maxCostPerTaskUsd=0.5` 触顶停机出报告（基底生成、零 token），不抛错；面板逐棒显示 calls、返回分类（确认型/信息型）与交接原因（reply / info-return / ack-aggregate / budget）。`node --test` 51 项全绿；mock 无 key 联调（`MOCK_CHAIN=1`）跑通「写+搜 → 读 → 回答」三步链，实测驱动输入 517 字 vs 原文 5270 字。
 
 ## v0.3a 基底化 · 证据落盘与意图（H0 的前置）
 
