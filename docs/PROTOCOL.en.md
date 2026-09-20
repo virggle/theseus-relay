@@ -45,17 +45,16 @@ This replaces v0.1's criterion ("was the context rebuilt from zero") and, with i
 
 ### Two hard clauses that follow
 
-1. **Write-target declaration**: every write must have an identifiable target (statically derivable from the tool signature, or declared explicitly as `write_target` on the task card). When several batons run concurrently, their write targets must be disjoint; the substrate checks this **statically** and a detected conflict fails immediately. This check is deterministic and **belongs to the script layer** — not to a decision model, and certainly not to a generative LLM (see §7, extension 6, for the hierarchy).
-2. **The only loop left inside a baton**: the substrate's validator re-dispatch (§4 / §6) is mechanical repair, not a ReAct loop, so this section does not constrain it — but it still needs a cap (ROADMAP R1 / R7).
+1. **Write-target declaration**: every write must have an identifiable target (statically derivable from the tool signature, or declared explicitly as `write_target` on the task card). When several batons run concurrently, their write targets must be disjoint; the substrate checks this **statically** and a detected conflict fails immediately. This check is deterministic and **belongs to the script layer** — not to a decision model, and certainly not to a generative LLM (see §7 for the hierarchy).
+2. **The only loop left inside a baton**: the substrate's validator re-dispatch (§4 / §6) is mechanical repair, not a ReAct loop, so this section does not constrain it — but it still needs a cap (see ROADMAP §4, pending revisions).
 
 ### The brief's semantics shift
 
 Once a baton no longer spans tool calls, it no longer carries "what I did over these dozen steps" but **what comes next, why, and on what evidence**. The brief thus moves from "compressed history" toward an **intent packet**: history belongs to the task board and the substrate, while the brief keeps only "pointers + intent + the decision ledger". The four invariants of §3 are unchanged, and matter more than ever — **anything that exists only inside a brief dies the moment the baton hands over.**
 
-### How this section evolved (honest record)
+### How this section evolved
 
-- **v0.1 criterion** (was the context zeroed): allowed in-baton ReAct loops, bounded by the four parameters above. Its promise never landed — the 2026-09-12 code review found that log lookup, validator re-dispatch and answering share one `for (i<3)` counter (ROADMAP R1), and exhausting the budget threw instead of wrapping up.
-- **Current criterion** (this section): in-baton loops are abolished in favour of a static information-dependency criterion. This is not a tuning of those parameters but the removal of the need for them — R1 therefore **dissolves structurally**; until H0 lands, however, it remains a real defect in the v0.1 code.
+v0.1's criterion was "was the context zeroed": it allowed in-baton ReAct loops bounded by the four parameters above, and that promise never fully landed in v0.1. Switching to the static information-dependency criterion does not tune those four parameters — it removes the need for them, and defects of that class disappear from the code rather than being fixed.
 
 ## 2.2 Tool-Baton Contract (H0)
 
@@ -150,25 +149,24 @@ The full log never automatically enters any baton's context. A baton may retriev
 | Decision oscillation (a rejected option re-proposed) | Detectable by diffing the decision ledger history: same option rejected then re-proposed → alert, and inject the original rejection rationale into the next baton |
 | Whole baton fails | That baton never existed — the brief still points to the last successful baton. **Baton-level transactional semantics hold by construction** |
 
-## 7. Why this is the seed of a harness
+## 7. The decision layer and its rank
 
-The current implementation is "conversation relay", but the protocol already contains every element of a harness, missing only six extension points:
+The high-frequency judgments between batons (how many batons to dispatch, whether an error means retry or re-dispatch, whether results are complete) do not need generated text. This layer sits between two extremes:
 
-1. **Substrate validator (v0.1.1)**: the five checks of §4 move from paper into code — the smallest possible increment, yet the foundation of all mechanical trust that follows
-2. **Tool batons (v0.2 / H0)**: the ACT phase emits tool-call requests, and a **side-effect ledger** must be written into the brief ("which irreversible operations this baton performed") — the precondition for stateless workers to do real work safely
-3. **Substratization (v0.3, split in two)**: the brief degrades from prose to **pointers** (state-file paths, task-list IDs); real state lives on disk. The thinner the brief, the more stable the system. Invariant 4 is its protocol-level basis. **v0.3a (long tool output persisted to the substrate + intent carried in the brief) is a prerequisite of H0**; **v0.3b (task board + pointer briefs + memory layering) is a prerequisite of H1** — a single chain only grows the baton count linearly; fan-out is what makes it multiplicative
-4. **Deterministic quality gates (v0.2+)**: tool-baton output passes deterministic checks first (tests, lint, build — zero tokens, zero bias, run every time); LLM review only handles the semantics the gates can't reach. The order is not negotiable: **cheap deterministic checks before expensive probabilistic review**
-5. **Review batons (v0.4)**: once a stage delivers its output, a baton that never saw the writing process re-checks it. Its review is genuinely unbiased — something no single-agent architecture can offer
-6. **Decision layer (H2)**: the high-frequency judgments between batons (how many batons to dispatch, whether an error means retry or re-dispatch, whether results are complete) do not need generated text. This layer sits between two extremes: **anything expressible as a deterministic rule (for instance, whether batons' `write_target`s intersect) stays in scripts**; real content generation stays with LLMs; the middle band of "finite options + non-determinism" belongs to **decision-specialized models that return only a probability distribution over candidates**, placeheld by a rule stub at first and swapped in later. Two disciplines: **it must not replace §4's substrate validator** (that is the commit condition of baton-level transactions and must remain a script); **every decision's output, probabilities included, must be persisted to the substrate log** — which is what makes this layer serve both the P1 Cost and P3 Audit tracks
+- **Anything expressible as a deterministic rule must stay in scripts** — for instance, whether batons' `write_target`s intersect (§2.1 hard clause 1)
+- **Real content generation still belongs to LLMs**
+- The middle band of "finite options + non-determinism" belongs to **decision-specialized models that return only a probability distribution over candidates**, placeheld by a rule stub at first and swapped in later
 
-A further implication: once the brief schema is versioned, **batons can relay across models and vendors** (baton A does chores on a cheap model, critical batons switch to a strong one) — cost scheduling becomes a protocol-layer concern.
+Two disciplines: **it must not replace §4's substrate validator** (that is the commit condition of baton-level transactions and must always remain a script); **every decision's output, probabilities included, must be persisted to the substrate log** — which makes this layer serve both P1 Cost and P3 Audit.
+
+A further implication: once the brief schema is versioned, **batons can relay across models and vendors** (baton A does chores on a cheap model, critical batons switch to a strong one) — cost scheduling becomes a protocol-layer concern. The staged path is in ROADMAP ladder two.
 
 ## 8. Known limits (the honest list)
 
 - Brief compression variance is high: different batons judge "what matters" differently; long-horizon information decay is unavoidable (this is a feature and a bug)
 - Long-horizon decay is unmeasured: periodically run a recall spot-check of "substrate ground truth vs. current brief", turning decay from a confession into an observable metric (to be built → scheduled as ROADMAP v0.1.4 decay probe)
-- Baton count and fixed overhead grow together: with the granularity now "a set of mutually independent calls = one baton", the same task splits into more batons, and each pays the fixed cost of "read a brief + write a brief". **The "crossover at baton 35" pinned by this §8 and by TESTS.md §D was calibrated under the old granularity; it is void — do not cite it until recalibrated** (recalibration is scheduled after H1 in ROADMAP's "Direction reset")
+- Baton count and fixed overhead grow together: with the granularity now "a set of mutually independent calls = one baton", the same task splits into more batons, and each pays the fixed cost of "read a brief + write a brief". **The crossover figure pinned by this §8 and by TESTS.md §D was calibrated under the old granularity; it is void — do not cite it until recalibrated** (recalibration is scheduled after H1 in ROADMAP ladder two)
 - Chinese 2-gram retrieval is low-fidelity: fine for a demo, not for production
-- 2–3 LLM calls per baton (answer + salvage fallback) — more expensive than a single continuous-agent conversation. What you buy is bounded context and auditability (since v0.1.2 this is no longer a confession: the panel shows the simulated monolithic spend live — short sessions really are more expensive, the crossover sits around baton 35; that rate carries two pending revisions, see "Revisions and prerequisites" R3 / R4 in ROADMAP, and this number will change once they land)
+- 2–3 LLM calls per baton (answer + salvage fallback) — more expensive than a single continuous-agent conversation. What you buy is bounded context and auditability (since v0.1.2 this is no longer a confession: the panel shows the simulated monolithic spend live — short sessions really are more expensive). That rate carries two pending revisions, see R3 / R4 in ROADMAP §4
 - The "2 lookups per baton" quota was once misread by a model as requiring user approval — tool semantics must be nailed down in the prompt
 - Concurrent batons cannot perceive each other: their write targets must be statically disjoint (§2.1), but races of the "the world I read has expired" kind (another baton concurrently modified the same region) still have no protocol-level answer — left to H1 for empirical work
