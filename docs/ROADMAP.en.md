@@ -50,7 +50,7 @@ Its KPIs need no new construction: telemetry and the cost double-ledger (v0.1.2)
 |-----------|-------------|
 | v0.2 "loop budget" (6 round trips / 60% window / 90 s / dead-loop detection / wrap-up reserve) | **Void**. There is no in-baton loop any more, so the parameters have nothing to act on (PROTOCOL §2.1) |
 | "What we will not do": "No parallel batons" | **Lifted**. Parallelism is the definition of a hive; write conflicts are instead constrained by a static check that batons' `write_target`s are disjoint (H1) |
-| v0.3 Substratization | **Promoted to a prerequisite**. With more batons, unless the brief degrades into "pointers + intent", cost and latency both explode — it is no longer "later" |
+| v0.3 Substratization | **Split in two**: v0.3a (long tool output persisted to the substrate + intent in the brief) is a **prerequisite of H0**; v0.3b (task board + pointer briefs + memory layering) is a **prerequisite of H1**. Core reason: a single chain only grows baton count linearly; fan-out is what makes it multiplicative |
 | v0.4 Review batons | Granularity becomes **stage-level** (rule two); the review baton's advantage of "structurally never seeing the writing process" is unchanged |
 | v0.5 Protocol independence | Unchanged, folded into H2 / H3 |
 | R1 (shared-counter defect) | **Structurally dissolved by H0**: three kinds of calls no longer compete for one budget inside a baton; until H0 lands it remains a real defect in the v0.1 code |
@@ -160,18 +160,28 @@ Key design: **the evidence of tool calls lands in the substrate; the intent of t
 
 Passing criterion: a 20-step task runs to completion with no in-baton loop anywhere, and the panel shows each baton's calls and reason for handing off step by step; the "evidence lands in the substrate" rule above must be verifiable — long tool output enters the brief as a summary plus a retrievable reference, with the full text only in the substrate, otherwise "bounded context" dies the moment tool batons arrive.
 
-## v0.3 Substratization (a prerequisite of H0, no longer optional)
+## v0.3a Substratization · evidence persisted, intent carried (prerequisite of H0)
+
+> Tracks served: P1 Cost (long output stays out of context) · P6 Persistence (real state on disk)
+
+- **Long tool output lands in the substrate; the brief keeps only "a summary + a retrievable reference"** — the only mandatory persistence capability for H0, and the landing of v0.2's "evidence lands in the substrate" criterion. The moment long tool output enters a brief, "bounded context" dies on the spot
+- The brief gains "next intent" (§2.1's intent packet): a batch of calls is emitted before its return values exist, so what gets written is "what comes next, and on what grounds"
+- The persistence rule follows PROTOCOL §3 Invariant 4: anything persisted keeps only a one-line pointer in the brief
+
+**Explicitly out of scope (corrected 2026-09-20)**: task boards, task cards, and the static `write_target` disjointness check are not in this rung — a single chain has no concurrent writes, so a disjointness check **has nothing to check**. They belong to v0.3b / H1.
+
+Passing criterion: a 20-step task completes without any baton's context containing the raw text of long tool output — only references.
+
+## v0.3b Substratization · task board and pointer briefs (prerequisite of H1)
 
 > Tracks served: P1 Cost (thinner briefs) · P6 Persistence (real state on disk, memory layering)
 
-- The brief degrades from prose to pointers: state-file paths, task-list IDs, SSOT document locations
-- All real state lives on disk; the brief records only "pointers + why + next step" — and, after §2.1, "intent not yet redeemed"
-- **The persistence rule is the compression rule** (PROTOCOL §3 Invariant 4): persisted → the brief keeps a pointer, disposable at any time; not persisted → the only copy, never dropped. No on-the-spot judgment during compression
-- **Task board**: real state is organized as task-board documents (each task card carries a `write_target`). It is both the basis for splicing work and guaranteeing disjoint write partitions, and the artifact that H3's self-improvement baton optimizes
+- The brief degrades from prose to pointers: state-file paths, task-list IDs, SSOT document locations; the length cap drops accordingly (e.g. 400 characters) — the thinner, the more stable, the cheaper to rebuild
+- **Task board**: real state is organized as task-board documents, each task card carrying a `write_target`. It is the basis for splicing work, the input to the static "write targets are disjoint" check, and the artifact that H3's self-improvement baton optimizes
+- **The persistence rule is the compression rule** (PROTOCOL §3 Invariant 4): persisted → keep a pointer, disposable at any time; not persisted → the only copy, never dropped. No on-the-spot judgment during compression
 - **Memory layering**: project memory lives in each project's own folder (SSOT documents); knowledge reusable across projects is distilled into skills loaded on demand — projects stay naturally isolated and don't consume brief budget
-- The brief's length cap drops accordingly (e.g. 400 characters) — the thinner, the more stable, the cheaper to rebuild
 
-**Why it was promoted to a prerequisite (2026-09-20)**: §2.1's granularity multiplies the number of batons, and each pays the fixed cost of "read a brief + write a brief". Unless the brief collapses into a pointer-style intent packet, cost and latency both explode.
+**Why it sits at H1 rather than H0 (corrected 2026-09-20)**: a single chain only grows the baton count linearly; fan-out is what makes it multiplicative. When a task runs into dozens of batons, cost and latency both explode unless the brief collapses into a pointer-style intent packet — so this is a prerequisite of H1, not of H0.
 
 Passing criterion: when swapping the model on a baton makes no difference to output quality, this rung is done.
 
@@ -222,7 +232,7 @@ v0.1.4's passing criterion requires the decay probe to separate "the brief never
 ### Already covered by the existing plan — unchanged
 
 - Moving long tool output out of context → v0.2's "evidence lands in the substrate, intent goes into the brief"; this round only adds a verifiable criterion to v0.2, leaving the design untouched
-- Pointer briefs and memory layering → v0.3, unchanged (2026-09-20: moved ahead of H0, content unchanged)
+- Pointer briefs and memory layering → **v0.3b**, unchanged (2026-09-20: it is a prerequisite of H1, not of H0; H0 only needs v0.3a's evidence persistence)
 - "No vector database" → unchanged; F1 is implemented inside that boundary
 
 ### Execution order
@@ -235,7 +245,7 @@ v0.1.4's passing criterion requires the decay probe to separate "the brief never
 | — | v0.1.3 cross-session bootstrap (as planned) | Depends on none of the above; can run in parallel with batches 1–3 |
 | 4 | F1 retrieval quality | Must land before v0.1.4 |
 | — | R7(b), budget-threshold calibration | Measurement items, kept out of the batches: decide once there is data |
-| — | v0.1.4 → v0.1.5 → v0.1.6 → v0.1.7 → v0.2 (as planned) | **2026-09-20**: v0.2 is rewritten per the new granularity as H0, v0.3 is promoted to a prerequisite of H0, and everything after follows the four milestones in "Direction reset" |
+| — | v0.1.4 → v0.1.5 → v0.1.6 → v0.1.7 → v0.2 (as planned) | **2026-09-20**: v0.2 is rewritten per the new granularity as H0; v0.3 is split in two — **v0.3a (evidence persistence) is promoted to a prerequisite of H0, v0.3b (task board / pointer briefs) is a prerequisite of H1**; everything after follows the four milestones in "Direction reset" |
 
 ### Decided (2026-09-12)
 

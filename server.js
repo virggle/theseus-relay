@@ -206,9 +206,12 @@ const server = http.createServer(async (req, res) => {
 
       // 记录与换代
       s.agentCount = result.agentId;
-      s.handoff = result.handoff;
+      s.handoff = result.handoff; // failed 棒沿用上一棒简报（产物不落盘）
+      // 用户消息无条件进 log：用户确实说过这句话，档案库不该有洞（ROADMAP R1 推论）
       s.log.push({ ts, role: 'user', agentId: result.agentId, text: message, mode: 'relay' });
-      s.log.push({ ts, role: 'assistant', agentId: result.agentId, text: result.reply, mode: 'relay' });
+      if (result.reply) {
+        s.log.push({ ts, role: 'assistant', agentId: result.agentId, text: result.reply, mode: 'relay' });
+      }
       s.batons.push({
         agentId: result.agentId,
         ts,
@@ -220,7 +223,8 @@ const server = http.createServer(async (req, res) => {
         degraded: result.degraded,
         rejected: !!result.rejected,
         validation: result.validation || null,
-        salvaged: !!result.salvaged,
+        salvaged: !!result.salvaged, // R6：relay 现在真的会返回这个标记
+        failed: !!result.failed,
         telemetry: result.telemetry || null,
       });
       persist(s);

@@ -193,34 +193,65 @@ function unescapeText(s) {
   return String(s).replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').trim();
 }
 
+// ---------- 棒内预算与决策（R1 / R2 的机械层） ----------
+
+// 三类调用各有独立预算，不再共用一个计数器（ROADMAP R1）：
+// - logLookups 翻日志、repairs 校验重派、fallbacks 兜底摘要，各管各的；
+// - calls 是防真死循环的硬上限，正常路径永远用不满，触到它说明这一棒确实该换人了。
+export const BUDGET = { logLookups: 2, repairs: 1, fallbacks: 2, calls: 8 };
+
+// 纯函数：拿到模型输出后决定下一步。无 IO，可单测。
+// R2 的落点就在 'nudge' 这一支：翻日志预算用尽要明说，而不是掉进抢救分支让用户看见 JSON。
+export function planNext({ parsed, used }) {
+  if (used.calls >= BUDGET.calls) return 'wrapup';
+  if (parsed && parsed.action === 'read_log') {
+    if (used.logLookups < BUDGET.logLookups) return 'log';
+    return 'nudge';
+  }
+  if (parsed && typeof parsed.reply === 'string' && parsed.reply.trim()) return 'answer';
+  return 'salvage';
+}
+
 // ---------- 单轮接力 ----------
 
 // session: { sid, log: [{ts, role, agentId, text}], handoff, agentCount }
-// 返回: { agentId, reply, handoff, logQueries, degraded, rejected, validation, telemetry }
+// 返回: { agentId, reply, handoff, logQueries, degraded, rejected, salvaged, failed, validation, telemetry }
+// failed=true 表示这一棒整体失败（PROTOCOL §6）：产物不落盘（handoff 沿用上一棒），
+// 但用户消息仍要进 log —— 用户确实说过这句话，档案库不该有洞。
 export async function runTurn({ session, message, cfg }) {
   const agentId = session.agentCount + 1;
   const prevHandoff = session.handoff || '';
   const logQueries = [];
   const calls = [];
+  const used = { calls: 0, logLookups: 0, repairs: 0, fallbacks: 0 };
 
   const messages = [
     { role: 'system', content: buildSystemPrompt(agentId, prevHandoff) },
     { role: 'user', content: message },
   ];
 
-  let briefRetried = false;
+  let reply = null;
+  let brief = null;
+  let salvaged = false;
+  let rejected = false;
+  let validation = null;
 
-  for (let i = 0; i < 3; i++) {
-    const { content: raw, call } = await callLLM(cfg, messages, briefRetried ? 'repair' : 'turn');
+  // 触顶不抛错：预算耗尽时按 PROTOCOL §2.1 收尾——带着已经拿到的东西退出，
+  // 而不是把这一轮连同用户的那句话一起丢掉（ROADMAP R1 的三处空洞）。
+  while (used.calls < BUDGET.calls) {
+    const { content: raw, call } = await callLLM(cfg, messages, used.repairs ? 'repair' : 'turn');
     calls.push(call);
+    used.calls += 1;
 
     const parsed = extractJSON(raw);
+    const action = planNext({ parsed, used });
+    if (action === 'wrapup') break;
 
-    // 翻日志动作
-    if (parsed && parsed.action === 'read_log' && logQueries.length < 2) {
-      const query = String(parsed.query || '');
+    if (action === 'log') {
+      const query = String((parsed && parsed.query) || '');
       const hits = searchLog(session, query);
       logQueries.push({ query, hits });
+      used.logLookups += 1;
       messages.push({ role: 'assistant', content: raw });
       messages.push({
         role: 'user',
@@ -232,50 +263,88 @@ export async function runTurn({ session, message, cfg }) {
       continue;
     }
 
-    // 正常回答：reply 有了，简报还要过基底校验
-    if (parsed && typeof parsed.reply === 'string' && parsed.reply.trim()) {
-      const reply = unescapeText(parsed.reply);
-      const brief = (parsed.handoff && String(parsed.handoff).trim())
-        ? String(parsed.handoff)
-        : await fallbackHandoff(cfg, message, reply, prevHandoff, calls);
-
-      const v = validateHandoff(brief, { prevHandoff });
-      if (v.ok) {
-        return {
-          agentId, reply, handoff: unescapeText(brief), logQueries, degraded: false, rejected: false,
-          validation: { ok: true, errors: [] },
-          telemetry: { model: cfg.model || '', calls, ...sumCalls(calls), logLookups: logQueries.length, salvage: false, rejected: false },
-        };
-      }
-
-      // 拒收 → 带校验错误重派一次（§6）
-      if (!briefRetried) {
-        briefRetried = true;
-        messages.push({ role: 'assistant', content: raw });
-        messages.push({ role: 'user', content: rejectionMessage(v) });
-        continue;
-      }
-
-      // 再不过 → 独立摘要调用兜底，并标记为 rejected
-      const fb = await fallbackHandoff(cfg, message, reply, prevHandoff, calls);
-      return {
-        agentId, reply, handoff: unescapeText(fb), logQueries, degraded: true, rejected: true,
-        validation: validateHandoff(fb, { prevHandoff }),
-        telemetry: { model: cfg.model || '', calls, ...sumCalls(calls), logLookups: logQueries.length, salvage: false, rejected: true },
-      };
+    // R2：翻日志预算用尽要明说，不能掉进抢救分支让用户看见 JSON 原文
+    if (action === 'nudge') {
+      messages.push({ role: 'assistant', content: raw });
+      messages.push({
+        role: 'user',
+        content:
+          `[系统·翻日志次数已用尽] 本棒最多只能查 ${BUDGET.logLookups} 次历史，这次不能再查了。` +
+          `请就用现有信息，按正常 JSON 格式回答用户：{"reply":"…","handoff":"…"}`,
+      });
+      continue;
     }
 
-    // 模型没按格式来：先尝试从坏 JSON 里抢救 reply，实在不行才整段兜底
-    const salvaged = salvageReply(raw);
-    const reply = salvaged != null ? unescapeText(salvaged) : unescapeText(raw.trim());
-    if (!reply) throw new Error('模型返回为空');
-    const fb = await fallbackHandoff(cfg, message, reply, prevHandoff, calls);
+    if (action === 'answer') {
+      reply = unescapeText(parsed.reply);
+      brief = parsed.handoff && String(parsed.handoff).trim() ? String(parsed.handoff) : null;
+    } else {
+      // 模型没按格式来：先尝试从坏 JSON 里抢救 reply
+      const s = salvageReply(raw);
+      if (s == null) continue; // 什么都没抢到：再给一次机会，受 calls 上限保护
+      reply = unescapeText(s);
+      salvaged = true;
+    }
+
+    // 简报缺失 → 独立摘要调用兜底（§6）
+    if (!brief && used.fallbacks < BUDGET.fallbacks) {
+      used.fallbacks += 1;
+      used.calls += 1;
+      brief = await fallbackHandoff(cfg, message, reply, prevHandoff, calls);
+    }
+    if (!brief) break;
+
+    validation = validateHandoff(brief, { prevHandoff });
+    if (validation.ok) break;
+
+    // 拒收 → 带校验错误重派一次（§6）
+    if (used.repairs < BUDGET.repairs) {
+      used.repairs += 1;
+      messages.push({ role: 'assistant', content: raw });
+      messages.push({ role: 'user', content: rejectionMessage(validation) });
+      continue;
+    }
+
+    // 再不过 → 独立摘要调用兜底，并标记为 rejected
+    rejected = true;
+    if (used.fallbacks < BUDGET.fallbacks) {
+      used.fallbacks += 1;
+      used.calls += 1;
+      const fb = await fallbackHandoff(cfg, message, reply, prevHandoff, calls);
+      brief = fb;
+      validation = validateHandoff(fb, { prevHandoff });
+    }
+    break;
+  }
+
+  const telemetry = {
+    model: cfg.model || '',
+    calls,
+    ...sumCalls(calls),
+    logLookups: logQueries.length,
+    salvage: salvaged,
+    rejected,
+  };
+
+  // 棒整体失败：产物不落盘，简报沿用上一棒，但用户消息仍进 log（由 server.js 保证）
+  if (!reply) {
     return {
-      agentId, reply, handoff: unescapeText(fb), logQueries, degraded: true, rejected: false,
-      validation: validateHandoff(fb, { prevHandoff }),
-      telemetry: { model: cfg.model || '', calls, ...sumCalls(calls), logLookups: logQueries.length, salvage: salvaged != null, rejected: false },
+      agentId, reply: '', handoff: prevHandoff, logQueries,
+      degraded: true, rejected: false, salvaged, failed: true,
+      validation: null, telemetry: { ...telemetry, failed: true },
     };
   }
 
-  throw new Error('翻日志次数超限，模型未给出正常回复');
+  return {
+    agentId,
+    reply,
+    handoff: unescapeText(brief || prevHandoff),
+    logQueries,
+    degraded: salvaged || rejected || used.fallbacks > 0,
+    rejected,
+    salvaged,
+    failed: false,
+    validation: validation || { ok: true, errors: [] },
+    telemetry: { ...telemetry, failed: false },
+  };
 }
