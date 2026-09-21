@@ -21,7 +21,7 @@
 - **翻日志**：完整 log 只对用户可见，Agent 默认不读，确有必要时按需检索（每棒最多 2 次）。
 - **可审计换棒**：后台面板逐棒展示简报、它读到的完整输入、发出的调用与返回分类（确认型 / 信息型）、交接原因（`reply` / `info-return` / `ack-aggregate` / `budget`）、降级与抢救标记，以及成本双账本（接力实付 vs 同题单体模拟）。
 
-`npm test` 83 项全绿（node:test，零依赖）。
+`npm test` 94 项全绿（node:test，零依赖）。
 
 ## 要长成的两个形态
 
@@ -79,6 +79,7 @@ src/returns.js     返回值分类（确认型 / 信息型）与确认聚合
 src/tools.js       最小工具集（search_files / read_file / write_file）+ 路径守卫
 src/validate.js    基底校验器：五项机械校验，不过则拒收重派
 src/briefchain.js  简报链导出与跨会话导入（v0.1.3）：只搬决策 + 画像，log 一行不搬
+src/retention.js   衰减探针（v0.1.4）：每 10 棒召回抽查，机械判分 + 三类归因，花费单独记账
 src/pricing.js     模型价目与成本双账本：接力实付 vs 同题单体模拟
 src/llmAdapter.js  OpenAI 兼容适配层（重试 + 超时）
 public/index.html  聊天界面 + 后台接力实况面板

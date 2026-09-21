@@ -157,6 +157,16 @@ header .tag{font-size:12px;color:var(--ink3);flex:1;white-space:nowrap;overflow:
         </div>
         <div class="cost-note" id="costNote"></div>
       </div>
+      <div class="cost" id="retentionPanel" hidden>
+        <div class="cost-head">衰减探针 · 每 10 棒一次召回抽查 <span class="cost-model" id="retentionAt"></span></div>
+        <div class="cost-row">
+          <div class="cost-cell"><span class="k">召回保留率</span><b id="retentionRate">—</b></div>
+          <div class="cost-cell"><span class="k">模型没用</span><b id="retentionModelMiss">—</b></div>
+          <div class="cost-cell"><span class="k">简报没写</span><b id="retentionBriefMiss">—</b></div>
+        </div>
+        <div class="cost-legend" id="retentionHistory"></div>
+        <div class="cost-note" id="retentionNote"></div>
+      </div>
       <div id="bsList" data-page-node-id="U3d67y8yphUXYb3FC2OPLS"></div>
     </aside>
   </div>
@@ -326,6 +336,12 @@ async function sendTurn(text) {
     if (data.degraded) extra += '<span class="chip warn">本棒输出降级</span>';
     if (data.rejected) extra += '<span class="chip warn">简报未过基底校验：' + esc((data.validation && data.validation.errors || []).map(e => e.msg).join('；') || '未知原因') + '</span>';
     if (data.salvaged) extra += '<span class="chip warn">输出截断，已自动抢救正文</span>';
+    // v0.1.4：探针是异步跑的，这一轮的回复不等它；稍后再拉一次状态把读数取回来
+    if (data.probe) {
+      extra += '<span class="chip warn">召回抽查进行中…</span>';
+      setTimeout(restoreState, 3000);
+      setTimeout(restoreState, 9000);
+    }
     const respMode = data.mode || 'relay';
     logEl.appendChild(renderMsg('bot', data.agentId, data.reply, extra, respMode));
     scrollBottom();
@@ -350,7 +366,8 @@ async function restoreState() {
     // 刷新后恢复：会话里若只有一份导入简报、还没换过棒，这条提示要补回来（它不在 log 里）
     if (!batons.length && String(s.handoff || '').startsWith('【跨会话导入】')) renderImportNotice();
     renderBackstage();
-    renderCost(s.cost);
+    renderCost(s.cost, s.retentionCost);
+    renderRetention(s.retention, s.retentionCost);
   } catch {}
 }
 
@@ -391,6 +408,38 @@ function renderCost(cost) {
   $('#costChart').innerHTML =
     `<polyline points="${pts('single')}" fill="none" stroke="var(--red)" stroke-width="1.6" stroke-dasharray="3 2"/>`
     + `<polyline points="${pts('relay')}" fill="none" stroke="var(--accent)" stroke-width="2"/>`;
+}
+
+// ---------- 衰减探针（v0.1.4） ----------
+// 每 10 棒一次召回抽查的读数。三类计数分开显示——「简报没写」和「模型没用」是要分开管的两种病。
+function renderRetention(list, probe) {
+  const panel = $('#retentionPanel');
+  if (!list || !list.length) { panel.hidden = true; return; }
+  panel.hidden = false;
+  const last = list[list.length - 1];
+  const rate = $('#retentionRate');
+  rate.textContent = last.rate == null ? '—' : Math.round(last.rate * 100) + '%';
+  rate.className = last.rate == null ? '' : last.rate >= 0.8 ? 'good' : 'bad';
+  $('#retentionModelMiss').textContent = last.counts.modelMissed;
+  $('#retentionBriefMiss').textContent = last.counts.briefMissed;
+  $('#retentionAt').textContent = `第 ${last.batonCount} 棒 · 累计 ${list.length} 次抽查`;
+  $('#retentionHistory').innerHTML = list.slice(-4).map((r) => {
+    const base = `第 ${r.batonCount} 棒：保留 ${r.counts.kept} / 模型没用 ${r.counts.modelMissed} / 简报没写 ${r.counts.briefMissed}`;
+    const third = r.salvage && (r.salvage.rescuable + r.salvage.searchMissed)
+      ? `（命中缺口 ${r.salvage.rescuable} 可救 / ${r.salvage.searchMissed} 检索没给）`
+      : '';
+    const note = r.rate == null ? ` — ${esc(r.note || '无可判分事实')}` : '';
+    return `<span>${base}${third}${note}</span>`;
+  }).join('<br>');
+  $('#retentionNote').textContent =
+    `本次抽查 ${last.asked} 个事实（满分 ${last.asked} 个，保留 ${last.counts.kept} 个）· 判分在基底机械完成，不调模型`
+    + ` · 探针另花 ${money((probe && probe.usd) || 0)}（${(probe && probe.calls) || 0} 次调用，`
+    + `${(probe && probe.inputTokens) || 0} in / ${(probe && probe.outputTokens) || 0} out tok）`;
+  // 成本说明行补一句探针开销：它不进棒级账本，但必须看得见
+  const note = $('#costNote');
+  if (probe && probe.usd > 0 && note && !note.textContent.includes('召回抽查')) {
+    note.textContent += ` · 召回抽查另花 ${money(probe.usd)}`;
+  }
 }
 
 // ---------- 简报链导出 / 跨会话导入（v0.1.3） ----------

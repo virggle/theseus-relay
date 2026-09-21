@@ -21,7 +21,7 @@ Both paths — conversation and tools — are wired up; `npm start` runs it:
 - **Log lookup**: the full log is visible only to the user; agents don't read it by default and may retrieve on demand when truly necessary (max 2 lookups per baton).
 - **Auditable handoffs**: the backstage panel shows, baton by baton, the brief, the exact input it read, the calls it emitted with their return classification (ack / info), the handoff reason (`reply` / `info-return` / `ack-aggregate` / `budget`), degradation and salvage markers, and a cost double-ledger (actual relay spend vs. a simulated monolith on the same conversation).
 
-`npm test` — 83 checks green (node:test, zero dependencies).
+`npm test` — 94 checks green (node:test, zero dependencies).
 
 ## The two forms it grows into
 
@@ -79,6 +79,7 @@ src/returns.js     return classification (ack / info) and acknowledgement aggreg
 src/tools.js       minimal tool set (search_files / read_file / write_file) + path guarding
 src/validate.js    substrate validator: five mechanical checks; fail means reject and re-dispatch
 src/briefchain.js  brief-chain export and cross-session import (v0.1.3): Decisions + User profile only, not one log line
+src/retention.js   decay probe (v0.1.4): a recall spot-check every 10 batons, mechanically scored, three-way attribution, spend booked separately
 src/pricing.js     model pricing and the cost double-ledger: relay actual vs. simulated monolith
 src/llmAdapter.js  OpenAI-compatible adapter (retry + timeout)
 public/index.html  chat UI + backstage relay panel

@@ -81,20 +81,29 @@ The brief chain is promoted from "an artifact inside one session" to a cross-ses
 
 **What shipped**: `src/briefchain.js` + two panel buttons (Blob download, zero dependencies) + the `GET /api/export` / `POST /api/import` routes. Export carries only `{agentId, ts, handoff, handoffReason}` plus the final brief and a `format`/`v` header (a per-field allowlist — new fields do not leak by default); import brings over two sections only, not one log line, and restarts agentCount at zero. The imported brief carries the `【跨会话导入】` marker, which makes the substrate add "not one item may go missing" to the first baton's prompt — otherwise a model compressing items under the 800-character budget would collide with §4's decisions-append-only diff and burn a rejection.
 
-### v0.1.4–v0.1.7 The measurement layer (not built)
+### v0.1.4 Decay probe (built 2026-09-21)
+
+> Tracks served: P2 Stability · P6 Persistence
+
+Every 10 batons, an automatic recall spot-check: 5 facts sampled from the substrate log, answered from the current brief alone, mechanically scored into a retention rate plus **three-way attribution** — for one and the same answer, a fact present in the brief but answered wrong is "the model missed it", while a fact absent from the brief is "the brief never wrote it"; the latter also re-queries the log once (F1's retrieval) and splits into "rescuable" or "retrieval gave nothing". The probe is not a baton: it writes no log, advances no baton number, produces no brief, and its spend is booked separately.
+
+**Passing criterion**: `retention_rate` becomes a permanent panel metric and can separate "the brief never recorded it" from "the model didn't use it".
+
+**What shipped**: `src/retention.js` (trigger rule, sampling window, parsing, mechanical scoring, attribution, one spot-check run) → `POST /api/turn` fires it asynchronously at the end of the turn (never blocking that turn's answer) → `GET /api/state` returns `retention` and `retentionCost` → a "decay probe" card on the panel. Scoring rule: digits and Latin words must appear verbatim; without hard fragments it takes the leading and trailing 2-grams of each CJK run and any hit counts; **no model scores the answers** (otherwise the probe would be self-certifying). Every test injects a fake model and depends on no real endpoint.
+
+### v0.1.5–v0.1.7 The measurement layer (not built)
 
 No hard dependency on tool batons — they can interleave. Each stops independently at "minimally runnable". **This layer is also the H3 self-improvement baton's only source of KPIs** — do not treat it as optional decoration.
 
 | Rung | Content | Passing criterion |
 |---|---|---|
-| v0.1.4 Decay probe | Every 10 batons, an automatic recall spot-check: sample 5 factual questions from the substrate log, answer via an independent call, compare against the originals, emit `retention_rate` | Becomes a permanent panel metric and can separate "the brief never recorded it" from "the model didn't use it" |
 | v0.1.5 Brief bandwidth tiers | Three tiers: L0 = 400-character pointer brief (small models / chore batons), L1 = 800-character full brief (current default), L2 = brief + substrate log excerpt pack; packed to the next baton's declared window budget | Within one session, different batons receive different tiers per routing rules, with no perceptible quality difference |
 | v0.1.6 Dual-track benchmark | benchmark.html gains a protocol benchmark mode: the same questions run on two tracks (relay chain vs. monolithic long context), inserted at turns 30 / 60 / 90, auto-scored into curves | One click produces the dual-track quality-vs-turn curve |
 | v0.1.7 Model routing table (toy) | The settings page allows rules ("batons with tool calls use model X, pure-chat batons use model Y"); the panel shows which model each baton actually used | A 50-baton session runs with two models mixed per rules, fully annotated on the panel |
 
-> Tracks served: v0.1.4 P2 · P6; v0.1.5 P1 · P2 · P5; v0.1.6 P2 · P1; v0.1.7 P5 · P1.
+> Tracks served: v0.1.5 P1 · P2 · P5; v0.1.6 P2 · P1; v0.1.7 P5 · P1.
 
-**Two ordering constraints**: v0.1.5's L0 pointer form depends on the persistence rules (until then L0 degrades to a hard-compression tier); retrieval quality (F1, see §4) **landed on 2026-09-21**, so it no longer blocks v0.1.4 — the earlier rule was that F1 must precede v0.1.4, otherwise the decay probe cannot separate out the "retrieval gave nothing" failure mode.
+**One ordering constraint remains**: v0.1.5's L0 pointer form depends on the persistence rules (until then L0 degrades to a hard-compression tier). F1 and v0.1.4 both landed on 2026-09-21, so the "the decay probe cannot tell a retrieval failure apart" prerequisite is lifted; v0.1.4 only exposes the metric — the hook from a sub-threshold retention rate to a higher tier belongs to v0.1.5.
 
 ### v0.2 Tool batons (= H0, implemented 2026-09-20)
 
@@ -203,7 +212,7 @@ Its KPIs need no new construction: telemetry and the cost double-ledger (v0.1.2)
 | v0.5 Protocol independence | Unchanged, folded into H2 / H3 |
 | R1 (shared-counter defect) | **Structurally dissolved by H0**: three kinds of calls no longer compete for one budget inside a baton |
 | The "crossover at baton 35" | **Recalibrated**: about 25 batons for chat sessions under the post-R3/R4 rates (assumed shape in TESTS.md §D); the tool-chain scenario waits for H1 |
-| The v0.1.4–v0.1.7 measurement layer (v0.1.3 landed 2026-09-21) | Unchanged, and with a new layer of meaning: it is the self-improvement baton's source of KPIs |
+| The v0.1.5–v0.1.7 measurement layer (v0.1.3 / v0.1.4 landed) | Unchanged, and with a new layer of meaning: it is the self-improvement baton's source of KPIs |
 
 **GUI** is shelved for now; when the hive GUI is built it reuses existing pieces — the live panel (→ hive topology view), `pricing.js` (→ per-task cost accounting + the self-improvement baton's KPI source), `validate.js`'s five checks (→ a meta-layer validator for improvement proposals), session storage and retrieval (→ board retrieval and audit), and `relay.js`'s salvage / degradation pipeline (still applicable under concurrent batons).
 

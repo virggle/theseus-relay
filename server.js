@@ -13,6 +13,7 @@ import { testConnection } from './src/llmAdapter.js';
 import { computeCost } from './src/pricing.js';
 import { buildBriefChain, serializeBriefChain, readBriefChain, buildImportedBrief, applyImportedBrief } from './src/briefchain.js';
 import { validateHandoff } from './src/validate.js';
+import { shouldProbe, runRetentionProbe, recordProbe, retentionCost } from './src/retention.js';
 
 process.on('uncaughtException', (e) => console.error('[uncaughtException]', e));
 process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e));
@@ -85,6 +86,8 @@ function getSession(sid) {
       log: Array.isArray(raw.log) ? raw.log : [],
       batons: Array.isArray(raw.batons) ? raw.batons : [],
       artifacts: Array.isArray(raw.artifacts) ? raw.artifacts : [],
+      // v0.1.4：探针结果要跨刷新留存（它不进 log，也不属于任何一根棒）
+      retention: Array.isArray(raw.retention) ? raw.retention : [],
       mode: raw.mode === 'single' ? 'single' : 'relay',
     };
     sessions.set(sid, s);
@@ -105,6 +108,7 @@ function persist(session) {
         log: session.log,
         batons: session.batons,
         artifacts: session.artifacts || [],
+        retention: session.retention || [],
       })
     );
   } catch (e) {
@@ -191,6 +195,9 @@ const server = http.createServer(async (req, res) => {
         log: s.log,
         batons: s.batons,
         cost: computeCost({ batons: s.batons, log: s.log, model }),
+        // v0.1.4：召回抽查的结果与它自己的花费（单独记账，不混进 cost.relay）
+        retention: s.retention || [],
+        retentionCost: retentionCost(s),
       });
     }
 
@@ -250,6 +257,22 @@ const server = http.createServer(async (req, res) => {
       persist(s);
       const cost = computeCost({ batons: s.batons, log: s.log, model: cfg.model });
 
+      // v0.1.4 衰减探针：每 10 棒跑一次。**异步**，不阻塞这一轮的回答；探针不是棒——
+      // 它不写 log、不推进 agentCount、不产出 handoff，花费单独记账（见 src/retention.js）。
+      const probeScheduled = shouldProbe(s.agentCount) && !s.probing;
+      if (probeScheduled) {
+        s.probing = true;
+        runRetentionProbe({ session: s, cfg })
+          .then((rec) => {
+            recordProbe(s, rec);
+            persist(s);
+          })
+          .catch((e) => console.error('[retention]', e.message))
+          .finally(() => {
+            s.probing = false;
+          });
+      }
+
       return send(res, 200, {
         agentId: result.batons[result.batons.length - 1].agentId,
         reply: result.reply,
@@ -260,6 +283,7 @@ const server = http.createServer(async (req, res) => {
         validation: result.batons[result.batons.length - 1].validation || null,
         salvaged: result.batons.some((b) => b.salvaged),
         cost,
+        probe: probeScheduled ? 'scheduled' : null,
         keySource: resolved.source,
       });
     }

@@ -140,6 +140,15 @@ Prompt constraints are the first line of defense, not the only one. The substrat
 
 Principle: **any rule that can live in the substrate does not stay in the prompt.** Models cheat (§8's field-tested traps are all documented model cheating); scripts don't. The validator is also the commit condition of baton-level transactions — a brief that fails validation effectively never existed. **A fallback-generated brief states its own provenance at the top** (`【简报来源·基底】`): it failed validation yet must still be handed over (otherwise the chain breaks on the spot), so the mechanical guarantee degrades into honest labelling — both the next baton and the panel have a right to know the brief is unreliable.
 
+### Substrate diagnostic: recall spot-check (v0.1.4)
+
+Long-horizon decay finally has a number here. The probe runs every 10 batons and **is not a baton**: it produces no brief, advances no baton number, writes no log, and its spend is booked separately (not in the baton ledger — otherwise P1's rate would be watered down).
+
+- One call to sample, one to answer: sampling sees only a **log window** (never the brief) and its ground truth must be a verbatim fragment from the log; answering sees only the **current brief** (no log — otherwise it measures something other than the brief's retention).
+- Scoring is mechanical: digits and Latin words must appear verbatim; without hard fragments it takes the leading and trailing 2-grams of each CJK run and any hit counts. **No model judges the answers**, otherwise the probe would be self-certifying.
+- Three-way attribution: fact in the brief + answered = kept; in the brief + wrong = **the model missed it**; not in the brief = **the brief never wrote it**. The third case also re-queries the log once (§5's retrieval) and records "rescuable" or "retrieval gave nothing" — that third column is observation only and never enters the rate.
+- Failures are not hidden: a failed sampling records a null-rate entry and the panel shows "—", rather than quietly skipping the spot-check.
+
 ## 5. External Memory Retrieval (Log-as-Memory)
 
 The full log never automatically enters any baton's context. A baton may retrieve on demand via the log-lookup action:
@@ -186,7 +195,7 @@ A further implication: once the brief schema is versioned, **batons can relay ac
 
 - Brief compression variance is high: different batons judge "what matters" differently; long-horizon information decay is unavoidable (this is a feature and a bug)
 - Cross-session import carries only Decisions + User profile, under an import budget (clipped from the tail and labelled when it overflows): the brief chain is lossy memory, not a full backup
-- Long-horizon decay is unmeasured: periodically run a recall spot-check of "substrate ground truth vs. current brief", turning decay from a confession into an observable metric (to be built → scheduled as ROADMAP v0.1.4 decay probe)
+- Long-horizon decay **is measured now** (a recall spot-check every 10 batons, see §4): the retention rate and its three-way attribution reach the panel, so decay is no longer a confession. The measurement itself is low-fidelity — scoring only checks key fragments, so a legitimate paraphrase can be recorded as "the model missed it"; that bias is pending empirical calibration
 - Baton count and fixed overhead grow together: with the granularity now "a set of mutually independent calls = one baton", the same task splits into more batons, and each pays the fixed cost of "read a brief + write a brief". **The chat-scenario crossover was recalibrated to about 25 batons** after R3 / R4 (the assumed shape is in TESTS.md §D); the tool-chain scenario waits for H1.
 - Chinese 2-gram retrieval is low-fidelity: fine for a demo, not for production
 - 2–3 LLM calls per baton (answer + salvage fallback) — more expensive than a single continuous-agent conversation. What you buy is bounded context and auditability (since v0.1.2 this is no longer a confession: the panel shows the simulated monolithic spend live — short sessions really are more expensive). The two rate biases are fixed (2026-09-21): all fixed content now precedes the brief, and endpoint-reported cache hits are billed at the cache rate.

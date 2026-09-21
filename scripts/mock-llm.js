@@ -83,6 +83,23 @@ const server = http.createServer((req, res) => {
         ],
         handoff: briefOf(),
       });
+    } else if (sys.includes('记忆衰减抽查')) {
+      // v0.1.4 衰减探针·抽样调用：固定出 5 个事实，其中 3 个能在简报里找到、2 个找不到（见下面作答支路），
+      // 这样一次冒烟就能同时看到 kept / modelMissed / briefMissed 三类与「可救 / 检索没给」第三列。
+      content = JSON.stringify({
+        facts: [
+          { question: '助手说要先做什么再落盘？', answer: '先验证再落盘' },
+          { question: '决策账本的第二条是什么？', answer: '决策只增不删' },
+          { question: '用户画像怎么描述的？', answer: '测试用户' },
+          { question: '用户消息里反复出现的那句话是什么？', answer: '随便说点什么' },
+          { question: '这个项目用的是哪个数据库？', answer: 'SQLite' },
+        ],
+      });
+    } else if (sys.includes('刚接棒的助手')) {
+      // 作答调用：只喂简报，所以「随便说点什么」「SQLite」答不出来（那是简报没写，不是模型没用）
+      content = JSON.stringify({
+        answers: ['先验证再落盘', '好像是有这么一条', '测试用户', '不知道', '不知道'],
+      });
     } else if (sys.includes('【跨会话导入】')) {
       // v0.1.3 跨会话导入联调：把导入简报里的「决策」「用户画像」原样回显——
       // 证明上一会话的决策真的通过简报到达了模型，而不是停在导出文件里。
