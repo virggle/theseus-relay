@@ -137,6 +137,16 @@ The full log never automatically enters any baton's context. A baton may retriev
 - Retrieval results arrive as a "system injection" that states plainly: *these are fragments only — you still cannot see the full record*
 - Semantics: **the log is an archive, not working memory**. Retrieval is a searchlight, not the lights coming on
 
+### The three retrieval-quality rules (F1, 2026-09-21)
+
+When hits cannot be trusted, one more failure mode appears — "retrieval gave nothing" — and it looks exactly like "the brief never recorded it" or "the model didn't use it", poisoning the decay probe's criteria (v0.1.4). All three live in substrate scripts, not in the prompt:
+
+1. **Line prefixes do not score**: hits still carry `【第N棒·用户】/【第N棒·助手】/【对照段·…】` (the next baton needs to know which baton said it), but scoring only looks at the body after the prefix — otherwise 「用户」 in 「用户偏好」 matches almost every line and ranking collapses on the spot.
+2. **Low-information-token filtering**: a static list (Chinese function words plus the prefix vocabulary itself) and a dynamic document-frequency gate (a token appearing in ≥ 0.6 of this session's log lines counts as non-discriminating), used together. If a tier empties the hits, relax to the next tier and rescore, up to no filtering at all — filtering exists to suppress noise, not to delete the only clue: **a low-quality hit beats a missed one**. Both thresholds are named exported constants in `src/relay.js`.
+3. **Result de-duplication**: dedupe by prefix-stripped, whitespace-collapsed body, keeping the earliest occurrence when the same sentence recurs across batons (user restatement / system injection / model self-report); dedupe runs **before** truncating to 8 — the quota is 8 fragments, and restatements must not eat it.
+
+All three are deterministic: the same (log, query) twice returns byte-identical results. Quotas and semantics are unchanged (still 2 lookups per baton, 8 hits each).
+
 ## 6. Failure Semantics
 
 | Failure | Substrate behavior |

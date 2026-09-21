@@ -85,7 +85,7 @@ No hard dependency on tool batons — they can interleave. Each stops independen
 
 > Tracks served: v0.1.3 P6 · P5; v0.1.4 P2 · P6; v0.1.5 P1 · P2 · P5; v0.1.6 P2 · P1; v0.1.7 P5 · P1.
 
-**Two ordering constraints**: v0.1.5's L0 pointer form depends on the persistence rules (until then L0 degrades to a hard-compression tier); retrieval quality (F1, see §4) must land before v0.1.4, otherwise the decay probe cannot separate out the "retrieval gave nothing" failure mode.
+**Two ordering constraints**: v0.1.5's L0 pointer form depends on the persistence rules (until then L0 degrades to a hard-compression tier); retrieval quality (F1, see §4) **landed on 2026-09-21**, so it no longer blocks v0.1.4 — the earlier rule was that F1 must precede v0.1.4, otherwise the decay probe cannot separate out the "retrieval gave nothing" failure mode.
 
 ### v0.2 Tool batons (= H0, implemented 2026-09-20)
 
@@ -200,18 +200,17 @@ Its KPIs need no new construction: telemetry and the cost double-ledger (v0.1.2)
 
 ## 4. Pending revisions
 
-> Findings from a review of **shipped code**. Revisions are not new features and are therefore exempt from the "≥2 tracks" bar — they merely move promises already written down into code. R1 has been structurally dissolved by H0; R2 and R6 are fixed; **R3 and R4 are fixed** (cost rates) and **R5 is fixed** (item-counting rates), 2026-09-21; R7 is narrowed to an empirically deferred R7(b).
+> Findings from a review of **shipped code**. Revisions are not new features and are therefore exempt from the "≥2 tracks" bar — they merely move promises already written down into code. R1 has been structurally dissolved by H0; R2 and R6 are fixed; **R3 and R4 are fixed** (cost rates), **R5 is fixed** (item-counting rates) and **F1 is fixed** (retrieval quality), 2026-09-21; R7 is narrowed to an empirically deferred R7(b).
 
 | # | Finding | Nature | Tracks |
 |---|---------|--------|--------|
 | R7(b) | Whether the fallback should also retry once — decide once real-world rates for fallbacks and validator rejections are observed (R7's visibility and provenance labelling have landed) | Empirical | P4 · P3 |
-| F1 | Retrieval quality trio: low-information-token filtering, excluding log line prefixes from scoring, and de-duplicating retrieval results (must land before v0.1.4) | Prerequisite | P2 · P6 |
 
 **R3 and R4 shipped in one pass (2026-09-21)**: R3 bills the relay with the endpoint-reported `cached` at the cache rate; R4 moves the brief to the end of the system prompt, so all fixed content precedes it — the cacheable prefix is now a measured 1120 characters on the chat line and 829 on the tool line (previously the fixed content after the brief could never hit the cache). The tool line additionally fixes a real defect: `prev` was computed but never injected, so tool batons never saw the previous brief (PROTOCOL §1's core invariant); it is now injected at the end.
 
 **R5 and R7 landed (2026-09-21)**: R5 changes item counting from "by line" to "items separated by semicolons on one line each count" — a model merging lines under budget pressure is no longer misread as items shrinking (a false rejection also eats the re-dispatch budget). R7's visibility (fallback results and validation errors on the panel) already existed from H0; this pass adds the substitute for the mechanical guarantee: **a fallback brief states its own provenance at the top** (`【简报来源·基底】`), so both the next baton and the panel can see the brief is unreliable. R7(b) — whether to also retry the fallback — still waits for field data.
 
-**Why F1 precedes v0.1.4**: v0.1.4's passing criterion requires the decay probe to separate "the brief never recorded it" from "the model didn't use it". Unreliable retrieval adds a third failure mode — "retrieval gave nothing" — which contaminates both. F1 uses a stop-word list plus prefix exclusion, and **still introduces no vector database**.
+**F1 is fixed (2026-09-21)**: all three rules live in the retrieval section of `src/relay.js` — line prefixes do not score; low-information tokens are filtered in two tiers (a static list plus a document-frequency gate, both thresholds exported as named constants); results are de-duplicated by prefix-stripped body before truncating to 8. The relaxation criterion is **whether the hits went empty**, not whether the tokens did — the looser the tier, the less it may kill a real hit. Quotas (2 lookups / 8 hits) and §5's semantics are untouched, and it **still introduces no vector database**. Why it precedes v0.1.4: the decay probe must separate "the brief never recorded it" from "the model didn't use it"; unreliable retrieval adds a third failure mode — "retrieval gave nothing" — that contaminates both.
 
 **To be calibrated empirically** (not scheduled; decide once there is data): the per-baton log-lookup cap, the re-dispatch cap, the wrap-up reserve's share of the total budget, the task-level baton and cost caps, the self-improvement baton's quota share, the maximum artifact volume of a stage, and the **recalibration of the crossover for tool-chain scenarios**.
 

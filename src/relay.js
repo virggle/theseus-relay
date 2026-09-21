@@ -21,38 +21,108 @@ export function withProvenance(brief, fromFallback) {
   return fromFallback && b ? `${FALLBACK_PROVENANCE}\n\n${b}` : b;
 }
 
-// ---------- log 检索（朴素关键词打分，零依赖） ----------
+// ---------- log 检索（F1：前缀不参与打分 + 低信息熵过滤 + 结果去重） ----------
+// 零依赖、纯确定性：同一 (log, query) 连跑两次结果逐字节相同（不依赖 Map/Set 隐式顺序、不用时间）。
+// 为什么这三件事要紧：命中不可信时，失败会多出一种「检索没给」，它和「简报没写」「模型没用」
+// 长得一模一样——衰减探针（v0.1.4）的判据会被它污染。规则放基底脚本，不靠提示词让模型"搜得准一点"。
+
+// F1-②(A) 静态低信息熵词表。两类词入表：
+//   1) 中文功能词（「可以」「已经」「什么」…）——任何一段话里都出现，命中不构成区分度；
+//   2) log 行抬头自身的词汇（「用户」「助手」「对照」）——抬头词等于"命中每一行"。
+// 纪律：内容词（考试、预算、航班、纪要…）一个都不许进表。误杀真命中比漏滤噪声严重得多。
+export const STOP_TOKENS = new Set([
+  '用户', '助手', '对照',
+  '可以', '我们', '你们', '他们', '自己', '大家',
+  '什么', '怎么', '这样', '那样', '这个', '那个', '这些', '那些', '一些', '一下', '一个',
+  '就是', '不是', '没有', '已经', '还是', '或者', '而且', '但是', '因为', '所以',
+  '如果', '以及', '关于', '对于', '由于', '为了', '时候', '的话',
+  '现在', '然后', '之后', '之前', '最后', '起来', '出来', '还有', '也是', '一直', '其实',
+]);
+
+// F1-②(B) 动态闸：token 在**本次会话 log** 里的文档频率 ≥ 该比例，即视为"无区分度"。
+// 它兜住静态表想不到的会话内高频词：某个词平时有信息量，但这段会话里到处都在说它，同样不能主导排序。
+export const STOP_DF_RATIO = 0.6;
+
+// F1-③ 去重键与打分对象都是「去抬头后的正文」，归一化 = 低头 → 空白折叠。
+// 抬头（【第N棒·用户】/【第N棒·助手】/【对照段·…】）仍随结果返回（后棒需要知道这句话出自哪一棒），
+// 但不参与打分：否则查「用户偏好」时"用户"二字命中几乎所有行，排序当场退化（F1-①）。
+const LINE_PREFIX = /^【[^】]*】/;
+
+function normalizeBody(line) {
+  return String(line).replace(LINE_PREFIX, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
 
 function logEntries(session) {
   const entries = [];
-  for (const t of session.log) {
+  for (const t of (session && session.log) || []) {
     const tag = t.agentId ? `第${t.agentId}棒` : '对照段';
-    entries.push(`【${tag}·${t.role === 'user' ? '用户' : '助手'}】${t.text}`);
+    const line = `【${tag}·${t.role === 'user' ? '用户' : '助手'}】${t.text}`;
+    entries.push({ line, body: normalizeBody(line) });
   }
   return entries;
+}
+
+// 中文按 2-gram + 英文/数字按词切分；单个汉字（切不出 2-gram）退化为整串子串匹配
+function tokenize(q) {
+  const tokens = new Set();
+  for (const m of q.match(/[a-zA-Z0-9]+/g) || []) tokens.add(m.toLowerCase());
+  const han = q.replace(/[^\u4e00-\u9fff]/g, '');
+  for (let i = 0; i < han.length - 1; i++) tokens.add(han.slice(i, i + 2));
+  if (tokens.size === 0) tokens.add(q.toLowerCase());
+  return tokens;
+}
+
+// 两级过滤 + 三级回退。回退的判据是**命中是否被清空**，不是 token 是否被清空——
+// 两级闸把 token 删光之后，剩下的 token 也可能恰好一条都不匹配，那同样是"过滤误杀了线索"。
+// 过滤的目的是压掉噪声，不是删掉唯一线索：任一级把命中清空，就放宽到下一级重算，宁可给出低质量命中。
+// 第一级 = 静态表 + DF 闸（正常路径）；第二级 = 只留 DF 闸（静态表误判时松绑）；
+// 第三级 = 不过滤（极短 log 里 DF 天然偏高，闸门失去意义）。
+function tokenTiers(tokens, bodies) {
+  const total = bodies.length;
+  const df = (tk) => bodies.reduce((n, b) => n + (b.includes(tk) ? 1 : 0), 0);
+  const tiers = [[true, true], [false, true], [false, false]];
+  return tiers.map(([useStatic, useDf]) =>
+    tokens.filter(
+      (tk) =>
+        (!useStatic || !STOP_TOKENS.has(tk)) &&
+        (!useDf || total === 0 || df(tk) / total < STOP_DF_RATIO)
+    )
+  );
+}
+
+function rankHits(entries, tokens, topK) {
+  const scored = entries.map((e, i) => {
+    let score = 0;
+    for (const tk of tokens) if (e.body.includes(tk)) score += tk.length;
+    return { line: e.line, body: e.body, i, score };
+  });
+
+  // 排序：得分降序；同分按出现先后（显式 tie-break，不依赖 sort 的稳定性）。
+  // 去重：同一句正文只留一条（上方同分规则保证留下的是**最早**那一次），
+  // 且去重必须发生在截断之前——否则复述会白占 8 条额度。
+  const seen = new Set();
+  const hits = [];
+  for (const s of scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score || a.i - b.i)) {
+    if (seen.has(s.body)) continue;
+    seen.add(s.body);
+    hits.push(s.line);
+    if (hits.length >= topK) break;
+  }
+  return hits;
 }
 
 export function searchLog(session, query, topK = 8) {
   const q = String(query || '').trim();
   if (!q) return [];
-  // 中文按 2-gram + 英文/数字按词切分
-  const tokens = new Set();
-  for (const m of q.match(/[a-zA-Z0-9]+/g) || []) tokens.add(m.toLowerCase());
-  const han = q.replace(/[^\u4e00-\u9fff]/g, '');
-  for (let i = 0; i < han.length - 1; i++) tokens.add(han.slice(i, i + 2));
-  if (tokens.size === 0) tokens.add(q);
+  if (!(topK > 0)) return [];
 
-  const scored = logEntries(session).map((line) => {
-    let score = 0;
-    const low = line.toLowerCase();
-    for (const tk of tokens) if (low.includes(tk)) score += tk.length;
-    return { line, score };
-  });
-  return scored
-    .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topK)
-    .map((s) => s.line);
+  const entries = logEntries(session);
+  const tiers = tokenTiers([...tokenize(q)], entries.map((e) => e.body));
+  for (const tokens of tiers) {
+    const hits = rankHits(entries, tokens, topK);
+    if (hits.length) return hits;
+  }
+  return [];
 }
 
 // ---------- 交接文档 ----------
