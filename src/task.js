@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { callLLM, fallbackHandoff, extractJSON, salvageReply, unescapeText, HANDOFF_FORMAT, BUDGET, sumCalls } from './relay.js';
+import { callLLM, fallbackHandoff, extractJSON, salvageReply, unescapeText, HANDOFF_FORMAT, BUDGET, sumCalls, withProvenance } from './relay.js';
 import { validateHandoff, BRIEF_BUDGET } from './validate.js';
 import { createTools, TOOL_SIGNATURES } from './tools.js';
 import { classifyReturn, aggregateAcks, infoLine } from './returns.js';
@@ -137,6 +137,7 @@ async function runBaton({ agentId, drivingInput, prevHandoff, cfg, whitelist }) 
   let emittedCalls = null; // [{tool,args}] 原始请求
   let reply = null;
   let brief = null;
+  let briefFromFallback = false; // 简报是否由兜底摘要生成（R7：交给下一棒时要自报来源）
   let salvaged = false;
   let rejected = false;
   let validation = null;
@@ -189,6 +190,7 @@ async function runBaton({ agentId, drivingInput, prevHandoff, cfg, whitelist }) 
         ? `发出了 ${emittedCalls.length} 个工具调用：${emittedCalls.map((c) => c && c.tool).join('、')}`
         : String(reply || '').slice(0, 200);
       brief = await fallbackHandoff(cfg, drivingInput, actionDesc, prevHandoff, calls);
+      briefFromFallback = true;
     }
     if (!brief) break;
 
@@ -216,6 +218,7 @@ async function runBaton({ agentId, drivingInput, prevHandoff, cfg, whitelist }) 
         ? `发出了 ${emittedCalls.length} 个工具调用：${emittedCalls.map((c) => c && c.tool).join('、')}`
         : String(reply || '').slice(0, 200);
       brief = await fallbackHandoff(cfg, drivingInput, actionDesc, prevHandoff, calls);
+      briefFromFallback = true;
       validation = validateHandoff(brief, { prevHandoff });
     }
     break;
@@ -232,7 +235,7 @@ async function runBaton({ agentId, drivingInput, prevHandoff, cfg, whitelist }) 
     salvaged,
   };
 
-  return { emittedCalls, reply, brief, telemetry, validation, rejected, salvaged };
+  return { emittedCalls, reply, brief: withProvenance(brief, briefFromFallback), telemetry, validation, rejected, salvaged };
 }
 
 // ---------- artifacts（v0.3a：长工具输出落基底） ----------

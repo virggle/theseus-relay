@@ -5,7 +5,7 @@
 //   1. 五节齐全        标题结构匹配（进展 / 决策 / 用户画像 / 开放问题 / 副作用）
 //   2. 无占位符        元注释正则
 //   3. 预算内          去空白字符数 ≤ 800
-//   4. 决策只增不删    与上一份简报 diff：决策、用户画像条目数不得减少
+//   4. 决策只增不删    与上一份简报 diff：决策、用户画像条目数不得减少（一行里用分号并列的条目各算一条，R5）
 //   5. 指针有效        不变量 4 的落盘指针，指向的基底路径必须真实存在（无指针则通过）
 //   （副作用节无单调性要求：本棒写了 3 个文件、下一棒可以一个不写，只要求节存在）
 
@@ -59,12 +59,19 @@ export function parseSections(handoff) {
   return out;
 }
 
-// 条目计数：非空行，行首的项目符号/序号不计入条目本身
+// 条目计数（R5）：不以行数为准 —— 预算压力下模型会把多条决策合并成一行，按行计数会把它误判成
+// 「条目变少」并触发一次重派，白白吃掉预算。改为：一行里用分号并列的条目各算一条。
+// 顿号（、）不拆：它通常是在一条条目内部并列属性，不是并列条目。
 export function countItems(sectionText) {
   return String(sectionText || '')
     .split('\n')
     .map((l) => l.trim())
-    .filter((l) => l && !/^#{1,6}\s/.test(l)).length;
+    .filter((l) => l && !/^#{1,6}\s/.test(l))
+    .reduce((n, line) => {
+      const body = line.replace(/^(?:[-*·]|\d+[.、)）]|[（(]\d+[）)])\s*/, '');
+      const segs = body.split(/[；;]/).map((s) => s.trim()).filter(Boolean);
+      return n + Math.max(1, segs.length);
+    }, 0);
 }
 
 export function findPointers(handoff) {

@@ -11,6 +11,16 @@ import { chatCompletion } from './llmAdapter.js';
 import { validateHandoff, BRIEF_BUDGET } from './validate.js';
 import { estimateTokens, estimateMessagesTokens } from './pricing.js';
 
+// R7：兜底生成的简报必须自报来源。它没过机械校验，却仍要交给下一棒（否则链路当场断掉），
+// 所以机械保证在这里退化为**如实标注**：下一棒与面板都能看见这份简报不可靠。
+export const FALLBACK_PROVENANCE =
+  '【简报来源·基底】本简报由兜底摘要生成（本棒原始输出格式不可解析或未通过机械校验），可靠性低于正常简报：其中可能与实际发生的事有出入，重要结论请以落盘文件或原始记录为准。';
+
+export function withProvenance(brief, fromFallback) {
+  const b = String(brief || '');
+  return fromFallback && b ? `${FALLBACK_PROVENANCE}\n\n${b}` : b;
+}
+
 // ---------- log 检索（朴素关键词打分，零依赖） ----------
 
 function logEntries(session) {
@@ -242,6 +252,7 @@ export async function runTurn({ session, message, cfg }) {
 
   let reply = null;
   let brief = null;
+  let briefFromFallback = false; // 简报是否由兜底摘要生成（R7：交给下一棒时要自报来源）
   let salvaged = false;
   let rejected = false;
   let validation = null;
@@ -301,6 +312,7 @@ export async function runTurn({ session, message, cfg }) {
       used.fallbacks += 1;
       used.calls += 1;
       brief = await fallbackHandoff(cfg, message, reply, prevHandoff, calls);
+      briefFromFallback = true;
     }
     if (!brief) break;
 
@@ -322,6 +334,7 @@ export async function runTurn({ session, message, cfg }) {
       used.calls += 1;
       const fb = await fallbackHandoff(cfg, message, reply, prevHandoff, calls);
       brief = fb;
+      briefFromFallback = true;
       validation = validateHandoff(fb, { prevHandoff });
     }
     break;
@@ -348,7 +361,7 @@ export async function runTurn({ session, message, cfg }) {
   return {
     agentId,
     reply,
-    handoff: unescapeText(brief || prevHandoff),
+    handoff: brief ? withProvenance(unescapeText(brief), briefFromFallback) : unescapeText(prevHandoff),
     logQueries,
     degraded: salvaged || rejected || used.fallbacks > 0,
     rejected,

@@ -4,7 +4,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildDrivingInput, buildChainReport, renderInfoResult, buildToolPrompt, TASK_BUDGET, ARTIFACT_MAX_CHARS } from '../src/task.js';
-import { buildSystemPrompt } from '../src/relay.js';
+import { buildSystemPrompt, withProvenance } from '../src/relay.js';
+import { validateHandoff } from '../src/validate.js';
 import { TOOL_SIGNATURES } from '../src/tools.js';
 import { aggregateAcks } from '../src/returns.js';
 
@@ -109,4 +110,22 @@ test('R4：简报在 prompt 最后，且同一份简报下任意两棒的 prompt
 test('第一棒没有简报时给明确说明，不留空段', () => {
   assert.match(buildToolPrompt(1, '', Object.keys(TOOL_SIGNATURES)), /本棒是第一棒/);
   assert.match(buildSystemPrompt(1, ''), /你是第一位助手/);
+});
+
+// ---------- R7：兜底简报必须自报来源 ----------
+
+test('R7：兜底生成的简报带来源标注，普通简报不加标注', () => {
+  const marked = withProvenance(BRIEF_SAMPLE, true);
+  assert.ok(marked.startsWith('【简报来源·基底】'), '兜底简报必须自报来源');
+  assert.ok(marked.endsWith(BRIEF_SAMPLE), '原文必须完整保留');
+  assert.equal(withProvenance(BRIEF_SAMPLE, false), BRIEF_SAMPLE);
+  assert.equal(withProvenance('', true), '', '没有简报时不能只留一个标注');
+});
+
+test('R7：标注落在节标题之前，不影响分节与机械校验（下一棒照常校验）', () => {
+  const marked = withProvenance(BRIEF_SAMPLE, true);
+  const v = validateHandoff(marked, { prevHandoff: BRIEF_SAMPLE });
+  assert.equal(v.ok, true, JSON.stringify(v.errors));
+  assert.equal(v.checks.monotonic.decisions.prev, 1);
+  assert.equal(v.checks.monotonic.decisions.cur, 1);
 });

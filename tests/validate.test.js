@@ -126,3 +126,26 @@ test('辅助函数：parseSections / countItems / findPointers 边界', () => {
   assert.deepEqual(findPointers('a -> x/y.md#z b'), ['x/y.md']);
   assert.deepEqual(findPointers('无指针'), []);
 });
+
+// ---------- R5：条目计数不再按行 ----------
+
+test('R5：一行里用分号并列的条目各算一条——合并行不再被误判成「条目变少」', () => {
+  const merged = GOOD.replace('1. 简报五节固定，节标题原样保留\n2. 决策账本只增不删\n', '1. 简报五节固定，节标题原样保留；2. 决策账本只增不删\n');
+  assert.equal(countItems(parseSections(merged)['决策']), 3, '合并后仍应数出 3 条');
+  const v = validateHandoff(merged, { prevHandoff: GOOD });
+  assert.equal(v.ok, true, JSON.stringify(v.errors));
+  assert.equal(v.checks.monotonic.decisions.cur, 3);
+});
+
+test('R5：真丢了一条仍然拒收（口径放宽不等于不查）', () => {
+  const shrunk = GOOD.replace('2. 决策账本只增不删\n', '');
+  assert.ok(codes(validateHandoff(shrunk, { prevHandoff: GOOD })).includes('DECISIONS_SHRUNK'));
+});
+
+test('R5：计数边界——项目符号/序号不计数，顿号不拆（它是条目内部的并列属性）', () => {
+  assert.equal(countItems('- a\n- b'), 2);
+  assert.equal(countItems('1. a；b'), 2);
+  assert.equal(countItems('（3） c'), 1);
+  assert.equal(countItems('偏好结论优先、结构化表格'), 1);
+  assert.equal(countItems('# 标题\na'), 1);
+});

@@ -50,7 +50,7 @@
 
 ## C. 自动化：基底校验器（v0.1.1）
 
-能用脚本判的就不留给模型自觉。`npm test`（Node 内置 node:test，零依赖）当前 58 项全绿（validate 15 / cost 12 / tools 7 / returns 8 / task 11 / budget 5）。本节对应的是 `tests/validate.test.js`：五项校验各配真实故障样本（占位符「（保留全部旧结论）」、缺节、超 800 字、决策条目变少、死指针），外加「策略 / 忽略不算占位符」这类反例防误杀。
+能用脚本判的就不留给模型自觉。`npm test`（Node 内置 node:test，零依赖）当前 63 项全绿（validate 18 / cost 12 / tools 7 / returns 8 / task 13 / budget 5）。本节对应的是 `tests/validate.test.js`：五项校验各配真实故障样本（占位符「（保留全部旧结论）」、缺节、超 800 字、决策条目变少、死指针），外加「策略 / 忽略不算占位符」这类反例防误杀。
 
 无 key 也能验证拒收链路，两条分支都要看到：
 
