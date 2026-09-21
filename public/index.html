@@ -120,6 +120,9 @@ header .tag{font-size:12px;color:var(--ink3);flex:1;white-space:nowrap;overflow:
     <span class="logo" data-page-node-id="2eTOKER0VWSA8vqODJS7bH">忒修斯号</span>
     <span class="tag" id="liveStat">每轮换棒 · Agent 只读简报，不读历史</span>
     <button class="hbtn" id="btnBackstage" data-page-node-id="O9veP5LcN01PXsyawJE2oF">后台实况</button>
+    <button class="hbtn" id="btnExport">导出简报链</button>
+    <button class="hbtn" id="btnImport">导入简报链</button>
+    <input type="file" id="importFile" accept=".json,application/json" hidden>
     <button class="hbtn" id="btnReset" data-page-node-id="WO5G5KNnmHnc6XFxTkLFBU">重开一局</button>
     <button class="hbtn" id="btnSettings" data-page-node-id="zu6tlC4c50ZpXsZLMsPL5u">设置</button>
   </header>
@@ -344,6 +347,8 @@ async function restoreState() {
     if (!res.ok) return;
     const s = await res.json();
     batons = s.batons || [];
+    // 刷新后恢复：会话里若只有一份导入简报、还没换过棒，这条提示要补回来（它不在 log 里）
+    if (!batons.length && String(s.handoff || '').startsWith('【跨会话导入】')) renderImportNotice();
     renderBackstage();
     renderCost(s.cost);
   } catch {}
@@ -387,6 +392,99 @@ function renderCost(cost) {
     `<polyline points="${pts('single')}" fill="none" stroke="var(--red)" stroke-width="1.6" stroke-dasharray="3 2"/>`
     + `<polyline points="${pts('relay')}" fill="none" stroke="var(--accent)" stroke-width="2"/>`;
 }
+
+// ---------- 简报链导出 / 跨会话导入（v0.1.3） ----------
+// 导出物 = 可读 JSON（缩进 2，逐字段白名单：棒号/时间/简报/交接原因 + 终局简报）。
+// 导入物 = 只搬「决策」+「用户画像」的初始简报；上一会话的 log 一行都不进新会话。
+async function ensureSession() {
+  if (sid) return sid;
+  const r = await fetch('/api/session', { method: 'POST' });
+  const d = await r.json();
+  sid = d.sid; localStorage.setItem('theseus_sid', sid);
+  return sid;
+}
+
+function renderImportNotice(extraHTML) {
+  logEl.querySelector('.empty')?.remove();
+  if (logEl.querySelector('.divider.imported')) return;
+  const div = document.createElement('div');
+  div.className = 'divider imported';
+  div.innerHTML = `<span>已导入上一会话简报：<b class="d-baton">决策 + 用户画像</b>${extraHTML || ''} → 本会话 log 为空，下一棒只知道这份简报</span>`;
+  logEl.appendChild(div);
+  scrollBottom();
+}
+
+$('#btnExport').addEventListener('click', async () => {
+  if (!sid) return toast('还没有开始对局');
+  try {
+    const r = await fetch('/api/export?sid=' + encodeURIComponent(sid));
+    const text = await r.text(); // 与基底用同一个序列化器，不在客户端另拼一份格式
+    if (!r.ok) { let m = '导出失败'; try { m = JSON.parse(text).error || m; } catch {} return toast(m); }
+    const blob = new Blob([text], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `theseus-brief-chain-${sid}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(a.href);
+    toast(`已导出简报链（${(JSON.parse(text).batons || []).length} 棒 + 终局简报）`);
+  } catch (e) { toast('导出失败：' + e.message); }
+});
+
+// 本局已有历史时先确认一次（复用「重开一局」的两次点击确认：沙箱里 confirm() 不可用）
+let importArmed = false, importTimer = null;
+function disarmImport() {
+  clearTimeout(importTimer);
+  importArmed = false;
+  const b = $('#btnImport');
+  b.textContent = '导入简报链';
+  b.classList.remove('active');
+}
+$('#btnImport').addEventListener('click', () => {
+  if (busy) return;
+  if (batons.length && !importArmed) {
+    importArmed = true;
+    $('#btnImport').textContent = '导入会清空本局，确认？';
+    $('#btnImport').classList.add('active');
+    importTimer = setTimeout(disarmImport, 3000);
+    return;
+  }
+  disarmImport();
+  $('#importFile').click();
+});
+
+$('#importFile').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = ''; // 同一个文件再选一次也能触发 change
+  if (!f) return;
+  busy = true; sendBtn.disabled = true;
+  try {
+    let chain;
+    try { chain = JSON.parse(await f.text()); } catch { return toast('不是合法的 JSON 文件'); }
+    await ensureSession();
+    const r = await fetch('/api/import', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sid, chain }),
+    });
+    const d = await safeJson(r);
+    if (!r.ok) return toast(d.error || '导入失败');
+    logEl.innerHTML = '';
+    batons = [];
+    mode = 'relay';
+    const dropped = (d.dropped['决策'] || 0) + (d.dropped['用户画像'] || 0);
+    renderImportNotice(`（清空 ${(d.cleared && d.cleared.log) || 0} 条旧记录 / ${(d.cleared && d.cleared.batons) || 0} 棒历史）`);
+    renderBackstage();
+    toast([
+      `已导入 ${d.batons} 棒简报链：决策 + 用户画像`,
+      dropped ? `超预算裁掉 ${dropped} 条` : '',
+      d.overBudget ? `⚠ 导入简报 ${d.chars} 字已超导入预算，第一棒可能被拒收重派` : '',
+    ].filter(Boolean).join(' · '));
+    await restoreState();
+  } catch (err) {
+    toast('导入失败：' + err.message);
+  } finally {
+    busy = false; sendBtn.disabled = false;
+  }
+});
 
 // ---------- 会话初始化 ----------
 async function init() {

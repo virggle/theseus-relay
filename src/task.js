@@ -17,6 +17,7 @@ import { validateHandoff, BRIEF_BUDGET } from './validate.js';
 import { createTools, TOOL_SIGNATURES } from './tools.js';
 import { classifyReturn, aggregateAcks, infoLine } from './returns.js';
 import { batonCostUsd } from './pricing.js';
+import { IMPORT_MARK, IMPORT_RULE } from './briefchain.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(__dirname, '..');
@@ -120,7 +121,7 @@ ${HANDOFF_FORMAT}
 
 【重要】calls 与 reply 不许同时出现；一次输出完整 JSON，不要拖延。
 
-【工作简报（上一棒留给你，其中已压缩了此前全部链路的信息）】
+${prevHandoff && String(prevHandoff).includes(IMPORT_MARK) ? IMPORT_RULE : ''}【工作简报（上一棒留给你，其中已压缩了此前全部链路的信息）】
 ${prevHandoff || '（无，本棒是第一棒）'}`;
 }
 

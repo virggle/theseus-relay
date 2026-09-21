@@ -113,6 +113,17 @@ Invariant 4 is the bridge from prose briefs to pointer briefs (ROADMAP v0.3): it
 
 **Intent-packet addendum (2026-09-20)**: after §2.1, the brief must also carry "intent not yet redeemed" — a batch of calls is emitted before its return values exist, so what gets written here is "what comes next, and on what grounds". Intent is not yet a decision: it goes into "Open questions" first, and is promoted into "Decisions" only once it is redeemed and settled.
 
+### Cross-session import (v0.1.3)
+
+A brief chain can be exported whole (`{format:'theseus-brief-chain', v:1, exportedAt, batons:[{agentId,ts,handoff,handoffReason}], finalBrief}`) and imported as a new session's initial brief. Four rules:
+
+1. **Only two sections travel**: in the new session's initial brief, only Decisions and User profile come from the previous session; Progress / Open questions / Side effects are filled in per the brief rules, not carried over.
+2. **Not one log line travels**: the previous session's log never enters the new session (§5's semantics hold across sessions too). Import clears the target session's log / batons / artifacts by construction, and agentCount restarts at zero.
+3. **The imported brief *is* "the previous brief"**: it must pass §4's mechanical validation, and its budget must leave room — if the imported part filled all 800 characters, the first baton would either drop items or overshoot, and both roads end in rejection.
+4. **The first baton after import gets a hard rule**: the imported brief carries the `【跨会话导入】` marker, and the substrate uses it to add "not one decision or profile item may go missing" to the prompt — compressing items would collide with invariant 4 (decisions append-only).
+
+`format` / `v` are placeholders for v0.5's schema versioning: the import side only accepts versions it knows, and rejects the rest.
+
 ## 4. Substrate Validation (the mechanical layer)
 
 Prompt constraints are the first line of defense, not the only one. The substrate mechanically validates every incoming brief and **rejects it on failure** (it goes through the §6 salvage pipeline for rewriting):
@@ -174,6 +185,7 @@ A further implication: once the brief schema is versioned, **batons can relay ac
 ## 8. Known limits (the honest list)
 
 - Brief compression variance is high: different batons judge "what matters" differently; long-horizon information decay is unavoidable (this is a feature and a bug)
+- Cross-session import carries only Decisions + User profile, under an import budget (clipped from the tail and labelled when it overflows): the brief chain is lossy memory, not a full backup
 - Long-horizon decay is unmeasured: periodically run a recall spot-check of "substrate ground truth vs. current brief", turning decay from a confession into an observable metric (to be built → scheduled as ROADMAP v0.1.4 decay probe)
 - Baton count and fixed overhead grow together: with the granularity now "a set of mutually independent calls = one baton", the same task splits into more batons, and each pays the fixed cost of "read a brief + write a brief". **The chat-scenario crossover was recalibrated to about 25 batons** after R3 / R4 (the assumed shape is in TESTS.md §D); the tool-chain scenario waits for H1.
 - Chinese 2-gram retrieval is low-fidelity: fine for a demo, not for production

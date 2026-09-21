@@ -71,19 +71,28 @@ The five mechanical checks of PROTOCOL §4 move into code: five sections present
 
 **Passing criterion**: the panel can answer, in real time, "what would this session have cost monolithically by now".
 
-### v0.1.3–v0.1.7 The measurement & multi-purpose layer (not built)
+### v0.1.3 Cross-session bootstrap (built 2026-09-21)
+
+> Tracks served: P6 Persistence · P5 Scheduling
+
+The brief chain is promoted from "an artifact inside one session" to a cross-session memory carrier: a new session can import the Decision + User profile sections of a previous session's final brief as its initial brief, and the panel can export the full brief chain as JSON (human-readable, model-agnostic, containing no key of any kind).
+
+**Passing criterion**: after closing the browser and bootstrapping a new session from the import, the model answers the previous session's settled decisions correctly.
+
+**What shipped**: `src/briefchain.js` + two panel buttons (Blob download, zero dependencies) + the `GET /api/export` / `POST /api/import` routes. Export carries only `{agentId, ts, handoff, handoffReason}` plus the final brief and a `format`/`v` header (a per-field allowlist — new fields do not leak by default); import brings over two sections only, not one log line, and restarts agentCount at zero. The imported brief carries the `【跨会话导入】` marker, which makes the substrate add "not one item may go missing" to the first baton's prompt — otherwise a model compressing items under the 800-character budget would collide with §4's decisions-append-only diff and burn a rejection.
+
+### v0.1.4–v0.1.7 The measurement layer (not built)
 
 No hard dependency on tool batons — they can interleave. Each stops independently at "minimally runnable". **This layer is also the H3 self-improvement baton's only source of KPIs** — do not treat it as optional decoration.
 
 | Rung | Content | Passing criterion |
 |---|---|---|
-| v0.1.3 Cross-session bootstrap | A new session can import the Decision + User Profile sections of a previous session's final brief as its initial brief; the panel exports the full brief chain as JSON | After closing the browser and bootstrapping a new session from the import, the model answers the previous session's settled decisions correctly |
 | v0.1.4 Decay probe | Every 10 batons, an automatic recall spot-check: sample 5 factual questions from the substrate log, answer via an independent call, compare against the originals, emit `retention_rate` | Becomes a permanent panel metric and can separate "the brief never recorded it" from "the model didn't use it" |
 | v0.1.5 Brief bandwidth tiers | Three tiers: L0 = 400-character pointer brief (small models / chore batons), L1 = 800-character full brief (current default), L2 = brief + substrate log excerpt pack; packed to the next baton's declared window budget | Within one session, different batons receive different tiers per routing rules, with no perceptible quality difference |
 | v0.1.6 Dual-track benchmark | benchmark.html gains a protocol benchmark mode: the same questions run on two tracks (relay chain vs. monolithic long context), inserted at turns 30 / 60 / 90, auto-scored into curves | One click produces the dual-track quality-vs-turn curve |
 | v0.1.7 Model routing table (toy) | The settings page allows rules ("batons with tool calls use model X, pure-chat batons use model Y"); the panel shows which model each baton actually used | A 50-baton session runs with two models mixed per rules, fully annotated on the panel |
 
-> Tracks served: v0.1.3 P6 · P5; v0.1.4 P2 · P6; v0.1.5 P1 · P2 · P5; v0.1.6 P2 · P1; v0.1.7 P5 · P1.
+> Tracks served: v0.1.4 P2 · P6; v0.1.5 P1 · P2 · P5; v0.1.6 P2 · P1; v0.1.7 P5 · P1.
 
 **Two ordering constraints**: v0.1.5's L0 pointer form depends on the persistence rules (until then L0 degrades to a hard-compression tier); retrieval quality (F1, see §4) **landed on 2026-09-21**, so it no longer blocks v0.1.4 — the earlier rule was that F1 must precede v0.1.4, otherwise the decay probe cannot separate out the "retrieval gave nothing" failure mode.
 
@@ -194,7 +203,7 @@ Its KPIs need no new construction: telemetry and the cost double-ledger (v0.1.2)
 | v0.5 Protocol independence | Unchanged, folded into H2 / H3 |
 | R1 (shared-counter defect) | **Structurally dissolved by H0**: three kinds of calls no longer compete for one budget inside a baton |
 | The "crossover at baton 35" | **Recalibrated**: about 25 batons for chat sessions under the post-R3/R4 rates (assumed shape in TESTS.md §D); the tool-chain scenario waits for H1 |
-| The v0.1.3–v0.1.7 measurement layer | Unchanged, and with a new layer of meaning: it is the self-improvement baton's source of KPIs |
+| The v0.1.4–v0.1.7 measurement layer (v0.1.3 landed 2026-09-21) | Unchanged, and with a new layer of meaning: it is the self-improvement baton's source of KPIs |
 
 **GUI** is shelved for now; when the hive GUI is built it reuses existing pieces — the live panel (→ hive topology view), `pricing.js` (→ per-task cost accounting + the self-improvement baton's KPI source), `validate.js`'s five checks (→ a meta-layer validator for improvement proposals), session storage and retrieval (→ board retrieval and audit), and `relay.js`'s salvage / degradation pipeline (still applicable under concurrent batons).
 

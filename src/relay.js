@@ -10,6 +10,7 @@
 import { chatCompletion } from './llmAdapter.js';
 import { validateHandoff, BRIEF_BUDGET } from './validate.js';
 import { estimateTokens, estimateMessagesTokens } from './pricing.js';
+import { IMPORT_MARK, IMPORT_RULE } from './briefchain.js';
 
 // R7：兜底生成的简报必须自报来源。它没过机械校验，却仍要交给下一棒（否则链路当场断掉），
 // 所以机械保证在这里退化为**如实标注**：下一棒与面板都能看见这份简报不可靠。
@@ -176,7 +177,7 @@ ${HANDOFF_FORMAT}
 
 【重要】reply 与 handoff 必须在本轮一次输出完整。绝不要对用户说「稍后给你」「马上给你一版」「先到这里」之类的拖延话术，也不要在 handoff 里记「重写尚未输出」——本轮能答就答完，篇幅不够时精炼内容，而不是中断承诺。
 
-${prev}`;
+${String(prevHandoff || '').includes(IMPORT_MARK) ? IMPORT_RULE : ''}${prev}`;
 }
 
 // 简报被基底拒收时，把校验错误原样回灌给该棒（PROTOCOL §6：带校验错误重派一次）

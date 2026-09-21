@@ -83,6 +83,22 @@ const server = http.createServer((req, res) => {
         ],
         handoff: briefOf(),
       });
+    } else if (sys.includes('【跨会话导入】')) {
+      // v0.1.3 跨会话导入联调：把导入简报里的「决策」「用户画像」原样回显——
+      // 证明上一会话的决策真的通过简报到达了模型，而不是停在导出文件里。
+      // 回写的 handoff 条目数与导入简报一致，否则会撞上「决策只增不删」的拒收重派。
+      const lastSection = (title) => {
+        const seg = sys.split('## ' + title).pop() || '';
+        return seg.split(/\n##\s/)[0].trim();
+      };
+      const decisions = lastSection('决策');
+      const profile = lastSection('用户画像');
+      content = JSON.stringify({
+        reply: `（mock 跨会话回显）我读到的上一会话决策是：\n${decisions}`,
+        handoff:
+          `## 进展\nmock 跨会话导入联调：本棒读到导入简报，决策与画像条目原样保留。\n` +
+          `## 决策\n${decisions}\n## 用户画像\n${profile}\n## 开放问题\n无\n## 副作用\n无`,
+      });
     } else if (last.startsWith('[系统·翻日志结果]')) {
       content = JSON.stringify({
         reply: `（mock 第${turnCount}次）我翻了日志，现在回答你。`,

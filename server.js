@@ -11,6 +11,8 @@ import { runChain } from './src/task.js';
 import { toLlmConfig, PROVIDER_PRESETS, loadEnv } from './src/config.js';
 import { testConnection } from './src/llmAdapter.js';
 import { computeCost } from './src/pricing.js';
+import { buildBriefChain, serializeBriefChain, readBriefChain, buildImportedBrief, applyImportedBrief } from './src/briefchain.js';
+import { validateHandoff } from './src/validate.js';
 
 process.on('uncaughtException', (e) => console.error('[uncaughtException]', e));
 process.on('unhandledRejection', (e) => console.error('[unhandledRejection]', e));
@@ -208,6 +210,9 @@ const server = http.createServer(async (req, res) => {
       if (!cfg.apiKey) return send(res, 400, { error: 'API Key 为空' });
 
       const ts = Date.now();
+      // 本链第一棒的「上一份简报」= 链开始前会话持有的简报（普通会话是上一轮终局简报；
+      // v0.1.3 导入过的会话就是那份导入简报）。必须在 runChain 之前取，否则会被本轮结果覆盖。
+      const chainEntryHandoff = s.handoff || '';
 
       // H0：一条用户消息跑完整条单链（工具返回驱动换棒），而不是只跑一根棒
       const result = await runChain({ session: s, message, cfg });
@@ -225,7 +230,7 @@ const server = http.createServer(async (req, res) => {
           agentId: b.agentId,
           ts,
           handoff: b.handoff || '',
-          prevHandoff: b.seq === 1 ? (s.batons.length ? s.batons[s.batons.length - 1].handoff : '') : result.batons[b.seq - 2].handoff || '',
+          prevHandoff: b.seq === 1 ? chainEntryHandoff : result.batons[b.seq - 2].handoff || '',
           drivingInput: b.drivingInput, // 本棒的驱动输入（用户消息或工具返回装配结果）
           userMessage: b.seq === 1 ? message : null, // 兼容旧面板字段
           calls: b.calls, // [{tool, args, class, ok, denied, summary, artifact}]
@@ -272,6 +277,44 @@ const server = http.createServer(async (req, res) => {
         persist(s);
       }
       return send(res, 200, { ok: true });
+    }
+
+    // 简报链导出（v0.1.3）：人类可读、模型无关，逐字段白名单——不含 key / baseUrl / 遥测
+    if (method === 'GET' && pathname === '/api/export') {
+      const s = getSession(searchParams.get('sid'));
+      if (!s) return send(res, 404, { error: '会话不存在' });
+      if (!(s.batons || []).length && !s.handoff) return send(res, 400, { error: '本会话还没有简报链可导出' });
+      const chain = buildBriefChain(s);
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Disposition': `attachment; filename="theseus-brief-chain-${s.sid}.json"`,
+        'Cache-Control': 'no-cache',
+      });
+      return res.end(serializeBriefChain(chain));
+    }
+
+    // 跨会话导入（v0.1.3）：只搬「决策」+「用户画像」，log 一行都不搬；导入的简报必须能过基底校验
+    if (method === 'POST' && pathname === '/api/import') {
+      const body = await parseJSONBody(req);
+      const s = getSession(body.sid);
+      if (!s) return send(res, 404, { error: '会话不存在：先开一个新会话再导入' });
+      const read = readBriefChain(body.chain);
+      if (!read.ok) return send(res, 400, { error: read.error });
+      const built = buildImportedBrief(read.chain);
+      const v = validateHandoff(built.handoff);
+      if (!v.ok) return send(res, 400, { error: `导入的简报没过基底校验：${v.errors.map((e) => e.msg).join('；')}` });
+      const cleared = applyImportedBrief(s, built.handoff);
+      persist(s);
+      return send(res, 200, {
+        ok: true,
+        agentCount: s.agentCount,
+        batons: read.chain.batons.length,
+        chars: built.chars,
+        dropped: built.dropped,
+        overBudget: built.overBudget,
+        cleared,
+        handoff: s.handoff,
+      });
     }
 
     // 连通性测试
