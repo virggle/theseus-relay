@@ -21,7 +21,7 @@ Both paths — conversation and tools — are wired up; `npm start` runs it:
 - **Log lookup**: the full log is visible only to the user; agents don't read it by default and may retrieve on demand when truly necessary (max 2 lookups per baton).
 - **Auditable handoffs**: the backstage panel shows, baton by baton, the brief, the exact input it read, the calls it emitted with their return classification (ack / info), the handoff reason (`reply` / `info-return` / `ack-aggregate` / `budget`), degradation and salvage markers, and a cost double-ledger (actual relay spend vs. a simulated monolith on the same conversation).
 
-`npm test` — 51 checks green (node:test, zero dependencies).
+`npm test` — 58 checks green (node:test, zero dependencies).
 
 ## The two forms it grows into
 

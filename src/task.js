@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { callLLM, fallbackHandoff, extractJSON, salvageReply, unescapeText, HANDOFF_FORMAT, BUDGET } from './relay.js';
+import { callLLM, fallbackHandoff, extractJSON, salvageReply, unescapeText, HANDOFF_FORMAT, BUDGET, sumCalls } from './relay.js';
 import { validateHandoff, BRIEF_BUDGET } from './validate.js';
 import { createTools, TOOL_SIGNATURES } from './tools.js';
 import { classifyReturn, aggregateAcks, infoLine } from './returns.js';
@@ -94,12 +94,13 @@ export function buildChainReport({ status, stoppedReason, batonsRun, costUsd, ma
 
 // ---------- 工具棒的 system prompt ----------
 
-function buildToolPrompt(agentId, prevHandoff, whitelist) {
-  const prev = prevHandoff
-    ? `【工作简报（上一棒留给你）】\n${prevHandoff}`
-    : '【工作简报】你是第一棒，没有简报。';
+// R4：同 relay.buildSystemPrompt —— 固定内容全部在前，逐棒变化的内容（只有简报）只许出现在末尾；
+// 棒编号一类的逐棒差异一律不进 prompt（它会把前缀缓存在那一字节处截断）。
+// 同时修掉一个真实缺陷：此前 prev 变量算了却从未注入，工具棒根本看不到上一棒的简报，
+// 而 PROTOCOL §1 的核心不变量是「简报是棒与棒之间唯一的传输介质」。
+export function buildToolPrompt(agentId, prevHandoff, whitelist) {
   const sigs = whitelist.map((t) => `- ${t} ${TOOL_SIGNATURES[t] || ''}`).join('\n');
-  return `你是任务接力中的第 ${agentId} 棒（单链步进）。你只有两样东西：上一棒的简报 + 本棒的驱动输入（用户消息或上一批工具调用的返回值）。
+  return `你是任务接力中的一棒（单链步进）。你只有两样东西：上一棒的简报 + 本棒的驱动输入（用户消息或上一批工具调用的返回值）。
 
 可用工具（白名单，越权调用会被基底拒绝并计入确认聚合）：
 ${sigs}
@@ -117,7 +118,10 @@ ${HANDOFF_FORMAT}
 
 简报规则：累积压缩而非本轮纪要；决策只增不删；发出 calls 时返回值还没回来，「开放问题」必须写明**下一步做什么 + 依据哪个证据**（意图包）。总长 ${BRIEF_BUDGET} 字以内。你的简报会被基底机械校验，不过则拒收重派一次。
 
-【重要】calls 与 reply 不许同时出现；一次输出完整 JSON，不要拖延。`;
+【重要】calls 与 reply 不许同时出现；一次输出完整 JSON，不要拖延。
+
+【工作简报（上一棒留给你，其中已压缩了此前全部链路的信息）】
+${prevHandoff || '（无，本棒是第一棒）'}`;
 }
 
 // ---------- 单棒执行（发一次动作 + 机械修补），结构对照 relay.runTurn ----------
@@ -217,13 +221,11 @@ async function runBaton({ agentId, drivingInput, prevHandoff, cfg, whitelist }) 
     break;
   }
 
+  // 遥测口径与对话线共用 sumCalls（R3 的 cached 才不会在两处漂移）
   const telemetry = {
     model: cfg.model || '',
     calls,
-    inputTokens: calls.reduce((n, c) => n + c.input, 0),
-    outputTokens: calls.reduce((n, c) => n + c.output, 0),
-    latencyMs: calls.reduce((n, c) => n + c.latencyMs, 0),
-    estimated: calls.some((c) => c.estimated),
+    ...sumCalls(calls),
     repairs: used.repairs,
     fallbacks: used.fallbacks,
     rejected,

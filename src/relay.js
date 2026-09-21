@@ -63,7 +63,10 @@ export { HANDOFF_FORMAT };
 
 // ---------- system prompt ----------
 
-function buildSystemPrompt(agentId, prevHandoff) {
+// R4：固定内容全部排在前面，简报挪到 system prompt 的**最后**——
+// 前缀缓存命中的是「从头开始完全相同的 token 前缀」，简报夹在中间时，它之后的固定内容永远命不中缓存。
+// 同理：任何逐棒变化的片段（简报、本棒编号）都只许出现在末尾。
+export function buildSystemPrompt(agentId, prevHandoff) {
   const prev = prevHandoff
     ? `【工作简报（上一任助手留给你，其中已压缩了此前全部对话的重要信息）】\n${prevHandoff}`
     : '【工作简报】你是第一位助手，没有简报。请自然回应用户，并按下方固定格式写 handoff（各节内容可以简短，但五节一个都不能少）。';
@@ -80,8 +83,6 @@ function buildSystemPrompt(agentId, prevHandoff) {
 
 你的简报会被基底机械校验（不是人看，是脚本判）：五节齐全、无占位符、${BRIEF_BUDGET} 字内、决策与用户画像条目不得比上一份少。校验不过会被拒收并要求你重发，所以一次写对更省事。
 
-${prev}
-
 【简报固定格式——每一棒都必须遵守，五节缺一不可，节标题原样保留】
 ${HANDOFF_FORMAT}
 
@@ -93,7 +94,9 @@ ${HANDOFF_FORMAT}
 
 要求：reply 用简体中文，自然、有人味；handoff 客观精炼，事实性陈述。只输出一个 JSON 对象。
 
-【重要】reply 与 handoff 必须在本轮一次输出完整。绝不要对用户说「稍后给你」「马上给你一版」「先到这里」之类的拖延话术，也不要在 handoff 里记「重写尚未输出」——本轮能答就答完，篇幅不够时精炼内容，而不是中断承诺。`;
+【重要】reply 与 handoff 必须在本轮一次输出完整。绝不要对用户说「稍后给你」「马上给你一版」「先到这里」之类的拖延话术，也不要在 handoff 里记「重写尚未输出」——本轮能答就答完，篇幅不够时精炼内容，而不是中断承诺。
+
+${prev}`;
 }
 
 // 简报被基底拒收时，把校验错误原样回灌给该棒（PROTOCOL §6：带校验错误重派一次）
@@ -130,10 +133,12 @@ export async function callLLM(cfg, messages, purpose, opts = {}) {
   };
 }
 
-function sumCalls(calls) {
+// R3：把端点回传的 cached 一路带上来，账本才可能按缓存价计费（否则接力侧被系统性高估）。
+export function sumCalls(calls) {
   return {
     inputTokens: calls.reduce((n, c) => n + c.input, 0),
     outputTokens: calls.reduce((n, c) => n + c.output, 0),
+    cachedTokens: calls.reduce((n, c) => n + (c.cached || 0), 0),
     latencyMs: calls.reduce((n, c) => n + c.latencyMs, 0),
     estimated: calls.some((c) => c.estimated),
   };

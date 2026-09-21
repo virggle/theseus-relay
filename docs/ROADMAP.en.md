@@ -193,28 +193,26 @@ Its KPIs need no new construction: telemetry and the cost double-ledger (v0.1.2)
 | v0.4 Review batons | Granularity becomes **stage-level** (rule two); the review baton's advantage of "structurally never seeing the writing process" is unchanged |
 | v0.5 Protocol independence | Unchanged, folded into H2 / H3 |
 | R1 (shared-counter defect) | **Structurally dissolved by H0**: three kinds of calls no longer compete for one budget inside a baton |
-| The "crossover at baton 35" | **Void** (calibrated under the old granularity); recalibrate after H1; do not cite it before that |
+| The "crossover at baton 35" | **Recalibrated**: about 25 batons for chat sessions under the post-R3/R4 rates (assumed shape in TESTS.md §D); the tool-chain scenario waits for H1 |
 | The v0.1.3–v0.1.7 measurement layer | Unchanged, and with a new layer of meaning: it is the self-improvement baton's source of KPIs |
 
 **GUI** is shelved for now; when the hive GUI is built it reuses existing pieces — the live panel (→ hive topology view), `pricing.js` (→ per-task cost accounting + the self-improvement baton's KPI source), `validate.js`'s five checks (→ a meta-layer validator for improvement proposals), session storage and retrieval (→ board retrieval and audit), and `relay.js`'s salvage / degradation pipeline (still applicable under concurrent batons).
 
 ## 4. Pending revisions
 
-> Findings from a review of **shipped code**. Revisions are not new features and are therefore exempt from the "≥2 tracks" bar — they merely move promises already written down into code. R1 has been structurally dissolved by H0; R2 and R6 are fixed.
+> Findings from a review of **shipped code**. Revisions are not new features and are therefore exempt from the "≥2 tracks" bar — they merely move promises already written down into code. R1 has been structurally dissolved by H0; R2 and R6 are fixed; **R3 and R4 are fixed** (cost rates, 2026-09-21).
 
 | # | Finding | Nature | Tracks |
 |---|---------|--------|--------|
-| R3 | Telemetry collects `usage.cached` but the cost ledger never bills with it, while the monolithic side gets the full cache rate — the rates favour the monolith one-sidedly, making the crossover conservative | Rates | P1 |
-| R4 | The brief sits between fixed blocks: only 537 characters are cacheable prefix, leaving 449 characters of fixed content permanently uncacheable | Implementation | P1 · P5 |
 | R5 | The "decisions append-only" check counts items by **line**: under budget pressure a model merges lines, is falsely rejected, and the re-dispatch eats budget | Rates | P4 · P1 |
 | R7 | Fallback briefs record `validation` without blocking, so an invalid brief can enter the next baton through the back door, while PROTOCOL §4 promises a mechanical guarantee | Rates | P4 · P3 |
 | F1 | Retrieval quality trio: low-information-token filtering, excluding log line prefixes from scoring, and de-duplicating retrieval results (must land before v0.1.4) | Prerequisite | P2 · P6 |
 
-**R3 and R4 must ship in one pass** (both act on the v0.1.2 cost rates): R3 gives the relay the cache discount it can actually earn; R4 raises the cacheable fixed portion from 537 to 1016 characters (pure reordering, zero protocol change, roughly 19% off the input side). Shipping them separately would leave the crossover existing under two different rates. **Note**: the real rate change comes from the granularity shift (PROTOCOL §2.1), so the sensible order is to recalibrate granularity first and then ship R3 / R4.
+**R3 and R4 shipped in one pass (2026-09-21)**: R3 bills the relay with the endpoint-reported `cached` at the cache rate; R4 moves the brief to the end of the system prompt, so all fixed content precedes it — the cacheable prefix is now a measured 1120 characters on the chat line and 829 on the tool line (previously the fixed content after the brief could never hit the cache). The tool line additionally fixes a real defect: `prev` was computed but never injected, so tool batons never saw the previous brief (PROTOCOL §1's core invariant); it is now injected at the end.
 
 **Why F1 precedes v0.1.4**: v0.1.4's passing criterion requires the decay probe to separate "the brief never recorded it" from "the model didn't use it". Unreliable retrieval adds a third failure mode — "retrieval gave nothing" — which contaminates both. F1 uses a stop-word list plus prefix exclusion, and **still introduces no vector database**.
 
-**To be calibrated empirically** (not scheduled; decide once there is data): the per-baton log-lookup cap, the re-dispatch cap, the wrap-up reserve's share of the total budget, the task-level baton and cost caps, the self-improvement baton's quota share, and the maximum artifact volume of a stage.
+**To be calibrated empirically** (not scheduled; decide once there is data): the per-baton log-lookup cap, the re-dispatch cap, the wrap-up reserve's share of the total budget, the task-level baton and cost caps, the self-improvement baton's quota share, the maximum artifact volume of a stage, and the **recalibration of the crossover for tool-chain scenarios**.
 
 ## 5. What we will not do
 

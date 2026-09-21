@@ -97,3 +97,58 @@ test('空会话不炸：0 棒 → 0 成本', () => {
   assert.equal(c.single.cost, 0);
   assert.equal(c.series.length, 0);
 });
+
+// ---------- R3 / R4：缓存计费 + 换序后的口径 ----------
+
+test('R3：命中前缀缓存的输入按缓存价计费，账本不再高估接力侧', () => {
+  const b = series(1);
+  b[0].telemetry = { inputTokens: 1000, outputTokens: 100, cachedTokens: 400 };
+  const c = computeCost({ batons: b, log: [], model: 'deepseek-chat' });
+  // (1000-400)×0.27 + 400×0.07 + 100×1.10 = 162 + 28 + 110 = 300 / 1e6
+  assert.ok(near(c.relay.cost, 300 / 1e6), String(c.relay.cost));
+  assert.equal(c.relay.cached, 400);
+});
+
+test('R3：cached 大于 input 时按 input 截断（不产生负的全价部分）', () => {
+  const b = series(1);
+  b[0].telemetry = { inputTokens: 100, outputTokens: 0, cachedTokens: 999 };
+  const c = computeCost({ batons: b, log: [], model: 'deepseek-chat' });
+  assert.ok(near(c.relay.cost, (100 * 0.07) / 1e6), String(c.relay.cost));
+  assert.equal(c.relay.cached, 100);
+});
+
+// R4 换序后，每棒的固定前缀（system prompt 里简报之前的部分）在后续棒上命中前缀缓存。
+// 形状假定（可手算复现）：固定前缀 852 tok（对话线实测）+ 简报 400 tok + 用户消息 100 tok = 1352 tok；
+// 第 1 棒没有缓存可命中。用户消息与回复各 100 tok，与上面的 series() 一致。
+const FIXED_PREFIX_TOK = 852;
+const IN_R4 = FIXED_PREFIX_TOK + 400 + 100;
+
+function batonR4(i) {
+  return {
+    agentId: i + 1,
+    userMessage: MSG,
+    lastReply: 'b'.repeat(400),
+    telemetry: { inputTokens: IN_R4, outputTokens: 100, cachedTokens: i === 0 ? 0 : FIXED_PREFIX_TOK },
+  };
+}
+const seriesR4 = (n) => Array.from({ length: n }, (_, i) => batonR4(i));
+
+test('R4：第 1 棒冷缓存更贵，第 2 棒起固定前缀命中缓存（差额 = 前缀的折扣）', () => {
+  const c = computeCost({ batons: seriesR4(3), log: [], model: 'deepseek-chat' });
+  const step = [c.series[0].relay, c.series[1].relay - c.series[0].relay, c.series[2].relay - c.series[1].relay];
+  // 第 1 棒：(1352×0.27 + 100×1.10) = 475.04 / 1e6
+  assert.ok(near(step[0], 475.04 / 1e6), String(step[0]));
+  // 第 2、3 棒：((1352-852)×0.27 + 852×0.07 + 100×1.10) = 304.64 / 1e6
+  assert.ok(near(step[1], 304.64 / 1e6), String(step[1]));
+  assert.ok(near(step[2], 304.64 / 1e6), String(step[2]));
+});
+
+test('R4 换序后的交叉点：约 25 棒之后接力开始省钱（口径同上，可手算）', () => {
+  const at = (n) => {
+    const c = computeCost({ batons: seriesR4(n), log: [], model: 'deepseek-chat' });
+    return c.relay.cost <= c.single.cost;
+  };
+  assert.equal(at(2), false, '短会话接力仍更贵——如实认输');
+  assert.equal(at(24), false);
+  assert.equal(at(25), true);
+});

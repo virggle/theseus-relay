@@ -3,7 +3,9 @@
 // 这里锁定：驱动输入装配、长输出摘要 + 指针形态、停机报告文本 —— 全部确定性断言。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDrivingInput, buildChainReport, renderInfoResult, TASK_BUDGET, ARTIFACT_MAX_CHARS } from '../src/task.js';
+import { buildDrivingInput, buildChainReport, renderInfoResult, buildToolPrompt, TASK_BUDGET, ARTIFACT_MAX_CHARS } from '../src/task.js';
+import { buildSystemPrompt } from '../src/relay.js';
+import { TOOL_SIGNATURES } from '../src/tools.js';
 import { aggregateAcks } from '../src/returns.js';
 
 test('buildDrivingInput：只有确认时 = 聚合一行 + 实际写入记录', () => {
@@ -81,4 +83,30 @@ test('端到端口径演练：确认聚合函数在链上产物是一行（aggre
   const line = aggregateAcks([{ tool: 'write_file', ok: true, target: 'docs/x.md', bytes: 1 }]);
   assert.equal(line, '确认聚合 1 个：1 成功');
   assert.equal(line.includes('\n'), false);
+});
+
+// ---------- R4 + PROTOCOL §1：简报必须真的交给下一棒，且落在可缓存前缀之后 ----------
+
+const BRIEF_SAMPLE = '## 进展\n上一棒留下的进展\n## 决策\n定过的事\n## 用户画像\n喜欢短句\n## 开放问题\n下一步读 a.txt\n## 副作用\n无';
+
+test('工具棒 system prompt 必须注入上一棒简报（PROTOCOL §1 核心不变量）', () => {
+  const p = buildToolPrompt(3, BRIEF_SAMPLE, Object.keys(TOOL_SIGNATURES));
+  assert.equal(p.indexOf(BRIEF_SAMPLE), p.lastIndexOf(BRIEF_SAMPLE), '简报必须原样出现且只出现一次');
+  assert.ok(p.includes('## 副作用'), '五节简报不能被截断');
+});
+
+test('R4：简报在 prompt 最后，且同一份简报下任意两棒的 prompt 逐字节相同', () => {
+  const tool = buildToolPrompt(1, BRIEF_SAMPLE, ['read_file']);
+  const chat = buildSystemPrompt(1, BRIEF_SAMPLE);
+  for (const p of [tool, chat]) {
+    assert.ok(p.trimEnd().endsWith(BRIEF_SAMPLE.trimEnd()), '简报必须是 prompt 的最后一块');
+  }
+  // 逐棒变化的只允许是简报：棒编号之类一律不进 prompt，否则前缀缓存在那一字节处被截断
+  assert.equal(tool, buildToolPrompt(99, BRIEF_SAMPLE, ['read_file']));
+  assert.equal(chat, buildSystemPrompt(99, BRIEF_SAMPLE));
+});
+
+test('第一棒没有简报时给明确说明，不留空段', () => {
+  assert.match(buildToolPrompt(1, '', Object.keys(TOOL_SIGNATURES)), /本棒是第一棒/);
+  assert.match(buildSystemPrompt(1, ''), /你是第一位助手/);
 });

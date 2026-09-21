@@ -1,6 +1,6 @@
 // 成本双账本（v0.1.2）：把 P1「上下文有界 → 成本有界」从论战变成面板上的两个数字。
 //
-// 实际接力成本：用端点回传的真实 usage（没有则按字符估算，标记 estimated）。
+// 实际接力成本：用端点回传的真实 usage（没有则按字符估算，标记 estimated）；其中命中前缀缓存的部分按缓存价计费（R3）。
 // 模拟单体成本：假设同一个模型每轮都把 system + 全部历史重读一遍——
 //   已经读过的部分命中前缀缓存（按缓存价），只有本轮新消息按全价，输出与实际相同。
 // 口径写死在这里，谁都能复算：输了不藏着，这才是这条轨道的可信度来源。
@@ -46,11 +46,13 @@ function usd(tokens, pricePerMillion) {
 
 /**
  * 单棒成本（美元）：任务级预算（H0 maxCostPerTask）按棒累加用。
- * 口径与 computeCost 的接力侧一致：全价输入 + 全价输出，不引入缓存假设。
+ * 口径与 computeCost 的接力侧一致：命中缓存的输入按缓存价，其余按全价，输出按输出价。
  */
 export function batonCostUsd(telemetry = {}, model = '') {
   const p = priceOf(model);
-  return usd(telemetry.inputTokens || 0, p.in) + usd(telemetry.outputTokens || 0, p.out);
+  const inTok = telemetry.inputTokens || 0;
+  const cachedTok = Math.min(telemetry.cachedTokens || 0, inTok);
+  return usd(inTok - cachedTok, p.in) + usd(cachedTok, p.cached) + usd(telemetry.outputTokens || 0, p.out);
 }
 
 /**
@@ -61,7 +63,7 @@ export function batonCostUsd(telemetry = {}, model = '') {
 export function computeCost({ batons = [], log = [], model = '' } = {}) {
   const p = priceOf(model);
   const series = [];
-  let relayIn = 0, relayOut = 0, relayCost = 0, singleCost = 0;
+  let relayIn = 0, relayOut = 0, relayCached = 0, relayCost = 0, singleCost = 0;
   // 单体架构第 n 轮的输入前缀 = system + 前 n-1 轮的 user+assistant 全文
   let prefixTokens = estimateTokens('x'.repeat(SINGLE_SYSTEM_CHARS));
   let estimated = false;
@@ -71,11 +73,14 @@ export function computeCost({ batons = [], log = [], model = '' } = {}) {
     const t = b.telemetry || {};
     const inTok = t.inputTokens || 0;
     const outTok = t.outputTokens || 0;
+    // R3：端点回传的 cached 按缓存价计费；没有这项（或端点不支持缓存）则为 0，等价于全额。
+    const cachedTok = Math.min(t.cachedTokens || 0, inTok);
     if (t.estimated) estimated = true;
 
     relayIn += inTok;
     relayOut += outTok;
-    relayCost += usd(inTok, p.in) + usd(outTok, p.out);
+    relayCached += cachedTok;
+    relayCost += usd(inTok - cachedTok, p.in) + usd(cachedTok, p.cached) + usd(outTok, p.out);
 
     const fresh = estimateTokens(b.userMessage);
     const cached = prefixTokens;
@@ -88,7 +93,7 @@ export function computeCost({ batons = [], log = [], model = '' } = {}) {
   return {
     model,
     price: { label: p.label, in: p.in, out: p.out, cached: p.cached, unknown: !!p.unknown, free: !!p.free },
-    relay: { in: relayIn, out: relayOut, cost: relayCost },
+    relay: { in: relayIn, out: relayOut, cached: relayCached, cost: relayCost },
     single: { cost: singleCost },
     series,
     estimated,

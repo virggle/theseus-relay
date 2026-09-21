@@ -371,7 +371,9 @@ function renderCost(cost) {
   dEl.className = d <= 0 ? 'good' : 'bad';
   $('#costModel').textContent = (cost.price && cost.price.label || '') + (cost.price && cost.price.unknown ? ' · 价目按默认档估算' : '');
   $('#costNote').textContent =
-    `${cost.turns} 棒 · 接力 in/out ${cost.relay.in}/${cost.relay.out} tok · 完整 log ${cost.logChars} 字（单体每棒都要重读它）`
+    `${cost.turns} 棒 · 接力 in/out ${cost.relay.in}/${cost.relay.out} tok`
+    + (cost.relay.cached ? `（其中缓存命中 ${cost.relay.cached}）` : '')
+    + ` · 完整 log ${cost.logChars} 字（单体每棒都要重读它）`
     + (cost.estimated ? ' · 部分 token 按字符估算' : '');
 
   const max = Math.max(r, sg, 1e-9);
