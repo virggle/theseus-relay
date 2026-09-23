@@ -55,7 +55,7 @@ The track IDs are citation symbols: every rung below is annotated with the track
 
 > Tracks served: P4 Transactions · P3 Audit
 
-The five mechanical checks of PROTOCOL §4 move into code: five sections present, no placeholders, within budget, decisions append-only, pointers valid. Fail → reject and re-dispatch (PROTOCOL §6).
+The five mechanical checks of PROTOCOL §4 move into code: six sections present, no placeholders, within budget, decisions & constraints append-only, pointers valid. Fail → reject and re-dispatch (PROTOCOL §6). (The sixth section, Constraints, and its append-only check were added on 2026-09-23, outside this milestone's original scope.)
 
 **Why it comes before tool batons**: the field-tested traps — anti-placeholder, anti-procrastination — were previously enforced purely by prompt constraints (model self-discipline). The validator is the first "substrate is more reliable than the model" component: dirt cheap (pure regex + diff), yet it turns brief quality from a probability problem into a determinism problem — baton-level transactions, quality gates and protocol independence all build on its existence.
 
@@ -218,11 +218,13 @@ Its KPIs need no new construction: telemetry and the cost double-ledger (v0.1.2)
 
 ## 4. Pending revisions
 
-> Findings from a review of **shipped code**. Revisions are not new features and are therefore exempt from the "≥2 tracks" bar — they merely move promises already written down into code. R1 has been structurally dissolved by H0; R2 and R6 are fixed; **R3 and R4 are fixed** (cost rates), **R5 is fixed** (item-counting rates) and **F1 is fixed** (retrieval quality), 2026-09-21; R7 is narrowed to an empirically deferred R7(b).
+> Findings from a review of **shipped code**. Revisions are not new features and are therefore exempt from the "≥2 tracks" bar — they merely move promises already written down into code. R1 has been structurally dissolved by H0; R2 and R6 are fixed; **R3 and R4 are fixed** (cost rates), **R5 is fixed** (item-counting rates) and **F1 is fixed** (retrieval quality), 2026-09-21; R7 is narrowed to an empirically deferred R7(b). R8 / R9 are not revisions but **unsettled questions** — see PROTOCOL §8.
 
 | # | Finding | Nature | Tracks |
 |---|---------|--------|--------|
 | R7(b) | Whether the fallback should also retry once — decide once real-world rates for fallbacks and validator rejections are observed (R7's visibility and provenance labelling have landed) | Empirical | P4 · P3 |
+| R8 | Whether Constraints should travel across sessions: it raises import-budget pressure (600-character import cap), and "the previous session's context is gone — does the old constraint still hold" is a semantic question | Unsettled | P6 · P4 |
+| R9 | Whether the substrate should maintain a constraint registry outside the brief: the biggest payoff (it would take over recognising constraints too), but it breaks §1's core invariant that the brief is the only transmission medium | Unsettled | P4 · P2 |
 
 **R3 and R4 shipped in one pass (2026-09-21)**: R3 bills the relay with the endpoint-reported `cached` at the cache rate; R4 moves the brief to the end of the system prompt, so all fixed content precedes it — the cacheable prefix is now a measured 1120 characters on the chat line and 829 on the tool line (previously the fixed content after the brief could never hit the cache). The tool line additionally fixes a real defect: `prev` was computed but never injected, so tool batons never saw the previous brief (PROTOCOL §1's core invariant); it is now injected at the end.
 

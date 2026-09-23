@@ -88,12 +88,12 @@ test('端到端口径演练：确认聚合函数在链上产物是一行（aggre
 
 // ---------- R4 + PROTOCOL §1：简报必须真的交给下一棒，且落在可缓存前缀之后 ----------
 
-const BRIEF_SAMPLE = '## 进展\n上一棒留下的进展\n## 决策\n定过的事\n## 用户画像\n喜欢短句\n## 开放问题\n下一步读 a.txt\n## 副作用\n无';
+const BRIEF_SAMPLE = '## 进展\n上一棒留下的进展\n## 决策\n定过的事\n## 约束\n改文件前先给我看\n## 用户画像\n喜欢短句\n## 开放问题\n下一步读 a.txt\n## 副作用\n无';
 
 test('工具棒 system prompt 必须注入上一棒简报（PROTOCOL §1 核心不变量）', () => {
   const p = buildToolPrompt(3, BRIEF_SAMPLE, Object.keys(TOOL_SIGNATURES));
   assert.equal(p.indexOf(BRIEF_SAMPLE), p.lastIndexOf(BRIEF_SAMPLE), '简报必须原样出现且只出现一次');
-  assert.ok(p.includes('## 副作用'), '五节简报不能被截断');
+  assert.ok(p.includes('## 副作用'), '六节简报不能被截断');
 });
 
 test('R4：简报在 prompt 最后，且同一份简报下任意两棒的 prompt 逐字节相同', () => {

@@ -7,9 +7,12 @@ import { validateHandoff, parseSections, countItems, countChars, findPointers } 
 const GOOD = `## 进展
 用户在评估接力协议，已跑到第 12 棒。
 ## 决策
-1. 简报五节固定，节标题原样保留
+1. 简报节标题原样保留
 2. 决策账本只增不删
 3. 不引入向量数据库
+## 约束
+1. 改文件前先把改法给我看
+2. 回复一律用中文
 ## 用户画像
 偏好结论优先、结构化表格；要求中英双语同步
 ## 开放问题
@@ -25,13 +28,19 @@ test('好简报通过全部五项', () => {
   assert.deepEqual(v.errors, []);
 });
 
-test('① 五节齐全：缺「## 决策」被拒', () => {
-  const v = validateHandoff(GOOD.replace(/## 决策\n[\s\S]*?(?=## 用户画像)/, ''));
+test('① 六节齐全：缺「## 决策」被拒', () => {
+  const v = validateHandoff(GOOD.replace(/## 决策\n[\s\S]*?(?=## 约束)/, ''));
   assert.ok(codes(v).includes('SECTIONS_MISSING'));
   assert.match(v.errors[0].msg, /决策/);
 });
 
-test('① 五节齐全：缺「## 副作用」被拒（H0 新增第五节）', () => {
+test('① 六节齐全：缺「## 约束」被拒（2026-09-23 新增第六节）', () => {
+  const v = validateHandoff(GOOD.replace(/## 约束\n[\s\S]*?(?=## 用户画像)/, ''));
+  assert.ok(codes(v).includes('SECTIONS_MISSING'));
+  assert.match(v.errors[0].msg, /约束/);
+});
+
+test('① 六节齐全：缺「## 副作用」被拒（H0 新增）', () => {
   const v = validateHandoff(GOOD.replace(/\n## 副作用\n无$/, ''));
   assert.ok(codes(v).includes('SECTIONS_MISSING'));
   assert.match(v.errors[0].msg, /副作用/);
@@ -43,13 +52,13 @@ test('① 副作用节无单调性：上一棒有写入、本棒「无」也通�
   assert.equal(validateHandoff(cur, { prevHandoff: prev }).ok, true, JSON.stringify(validateHandoff(cur, { prevHandoff: prev }).errors));
 });
 
-test('① 四节齐全：接受历史写法「## 用户画像与偏好」', () => {
+test('① 六节齐全：接受历史写法「## 用户画像与偏好」', () => {
   const v = validateHandoff(GOOD.replace('## 用户画像', '## 用户画像与偏好'));
   assert.equal(v.ok, true, JSON.stringify(v.errors));
 });
 
 test('② 无占位符：圆括号「（保留全部旧结论）」被拒', () => {
-  const v = validateHandoff(GOOD.replace('1. 简报五节固定，节标题原样保留', '（保留全部旧结论）'));
+  const v = validateHandoff(GOOD.replace('1. 简报节标题原样保留', '（保留全部旧结论）'));
   assert.ok(codes(v).includes('PLACEHOLDER'));
 });
 
@@ -75,7 +84,7 @@ test('③ 预算内：超过 800 字被拒，800 字整通过', () => {
 });
 
 test('④ 决策只增不删：条目变少被拒，持平/新增通过', () => {
-  const prev = GOOD; // 决策 3 条、画像 1 条
+  const prev = GOOD; // 决策 3 条、约束 2 条、画像 1 条
   const shrunk = GOOD.replace('3. 不引入向量数据库\n', '');
   const v = validateHandoff(shrunk, { prevHandoff: prev });
   assert.ok(codes(v).includes('DECISIONS_SHRUNK'));
@@ -87,16 +96,41 @@ test('④ 决策只增不删：条目变少被拒，持平/新增通过', () => 
   assert.equal(validateHandoff(GOOD, { prevHandoff: prev }).ok, true);
 });
 
+test('④ 约束只增不删：条目变少被拒（第六节与决策同等受保护）', () => {
+  const prev = GOOD; // 约束 2 条
+  const shrunk = GOOD.replace('2. 回复一律用中文\n', '');
+  const v = validateHandoff(shrunk, { prevHandoff: prev });
+  assert.ok(codes(v).includes('CONSTRAINTS_SHRUNK'), JSON.stringify(v.errors));
+  assert.equal(v.checks.monotonic.constraints.prev, 2);
+  assert.equal(v.checks.monotonic.constraints.cur, 1);
+  assert.match(v.errors.find((e) => e.code === 'CONSTRAINTS_SHRUNK').msg, /约束账本/);
+});
+
+test('④ 约束只增不删：新增约束、持平都通过；把约束并进一行（分号并列）也算没丢', () => {
+  const prev = GOOD;
+  const grown = GOOD.replace('## 约束\n', '## 约束\n0. 不碰仓库外的文件\n');
+  assert.equal(validateHandoff(grown, { prevHandoff: prev }).ok, true);
+  assert.equal(validateHandoff(GOOD, { prevHandoff: prev }).ok, true);
+
+  const mergedLine = GOOD.replace('1. 改文件前先把改法给我看\n2. 回复一律用中文\n', '1. 改文件前先把改法给我看；2. 回复一律用中文\n');
+  assert.equal(countItems(parseSections(mergedLine)['约束']), 2, '合并成一行仍应数出 2 条');
+  assert.equal(validateHandoff(mergedLine, { prevHandoff: prev }).ok, true);
+});
+
 test('④ 决策只增不删：画像条目变少同样被拒', () => {
   const shrunk = GOOD.replace('偏好结论优先、结构化表格；要求中英双语同步\n', '');
   const v = validateHandoff(shrunk, { prevHandoff: GOOD });
   assert.ok(codes(v).includes('PROFILE_SHRUNK'));
 });
 
-test('④ 决策只增不删：第一棒（无上一份）跳过该校验', () => {
-  const v = validateHandoff('## 进展\n首棒\n## 决策\n（暂无）\n## 用户画像\n待观察\n## 开放问题\n无\n## 副作用\n无');
+test('④ 只增不删：第一棒（无上一份简报）跳过该校验，且三节键位恒定存在', () => {
+  const v = validateHandoff('## 进展\n首棒\n## 决策\n（暂无）\n## 约束\n（暂无）\n## 用户画像\n待观察\n## 开放问题\n无\n## 副作用\n无');
   assert.equal(v.ok, true, JSON.stringify(v.errors));
-  assert.equal(v.checks.monotonic.decisions.prev, null);
+  assert.deepEqual(Object.keys(v.checks.monotonic).sort(), ['constraints', 'decisions', 'profile']);
+  for (const label of ['decisions', 'constraints', 'profile']) {
+    assert.equal(v.checks.monotonic[label].prev, null);
+    assert.equal(v.checks.monotonic[label].cur, null);
+  }
 });
 
 test('⑤ 指针有效：无指针通过，指向不存在路径被拒', () => {
@@ -118,8 +152,9 @@ test('⑤ 指针有效：默认用真实文件系统判断（仓库内文件为�
 
 test('辅助函数：parseSections / countItems / findPointers 边界', () => {
   const s = parseSections(GOOD);
-  assert.deepEqual(Object.keys(s), ['进展', '决策', '用户画像', '开放问题', '副作用']);
+  assert.deepEqual(Object.keys(s), ['进展', '决策', '约束', '用户画像', '开放问题', '副作用']);
   assert.equal(countItems(s.决策), 3);
+  assert.equal(countItems(s.约束), 2);
   assert.equal(countItems(s.副作用), 1);
   assert.equal(countItems(''), 0);
   assert.equal(countChars('  a b\n c '), 3);
@@ -130,7 +165,7 @@ test('辅助函数：parseSections / countItems / findPointers 边界', () => {
 // ---------- R5：条目计数不再按行 ----------
 
 test('R5：一行里用分号并列的条目各算一条——合并行不再被误判成「条目变少」', () => {
-  const merged = GOOD.replace('1. 简报五节固定，节标题原样保留\n2. 决策账本只增不删\n', '1. 简报五节固定，节标题原样保留；2. 决策账本只增不删\n');
+  const merged = GOOD.replace('1. 简报节标题原样保留\n2. 决策账本只增不删\n', '1. 简报节标题原样保留；2. 决策账本只增不删\n');
   assert.equal(countItems(parseSections(merged)['决策']), 3, '合并后仍应数出 3 条');
   const v = validateHandoff(merged, { prevHandoff: GOOD });
   assert.equal(v.ok, true, JSON.stringify(v.errors));

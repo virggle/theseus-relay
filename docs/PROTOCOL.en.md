@@ -80,7 +80,7 @@ Paths are always relative to this session's **workspace** (`data/workspace/<sid>
 
 - **Permissions granted per baton**: the substrate passes in a whitelist of tools this baton may use (all three open by default in H0); an out-of-scope call is not executed and returns a denial acknowledgement (ack-type, aggregated into the next baton).
 - **Write targets must be identifiable**: the `path` of `write_file` **is** the `write_target`, statically derivable from the tool signature, and is booked item by item by the substrate (the single-chain form of §2.1 hard clause 1; the concurrency disjointness check waits for H1).
-- **Side-effect ledger**: the fifth brief section "Side effects" lists this baton's irreversible operations item by item, or "none". The **actual** write record held by the substrate is injected into the next baton alongside the return values, cross-checking the baton's own declaration.
+- **Side-effect ledger**: the sixth brief section "Side effects" lists this baton's irreversible operations item by item, or "none". The **actual** write record held by the substrate is injected into the next baton alongside the return values, cross-checking the baton's own declaration.
 
 ### Long outputs persist to the substrate (v0.3a)
 
@@ -92,11 +92,12 @@ When each baton on the chain leaves the stage, the substrate records a mechanica
 
 ## 3. Brief Schema
 
-A fixed five-section structure; every generation must output all of it:
+A fixed six-section structure; every generation must output all of it:
 
 ```
 ## Progress       compressed context of everything so far + this generation's new progress
 ## Decisions      settled conclusions, rejected options and why — append-only
+## Constraints    user-issued generic directives that bind this session's behavior — append-only
 ## User profile   communication style, background, what they care about — merged update
 ## Open questions resolved ones cleared out, new ones added (incl. next intent: what to do + on what evidence)
 ## Side effects   this baton's irreversible operations, item by item; "none" if empty (§2.2)
@@ -106,7 +107,7 @@ A fixed five-section structure; every generation must output all of it:
 
 1. **Cumulative compression**: the brief = a compressed retention of whatever in the previous brief is still relevant + this generation's additions. It is never a "this-turn recap".
 2. **No meta-comments**: "(previous conclusions retained)", "same as above", "omitted" are protocol-level violations — the substrate cannot see the previous brief, so a placeholder is information destruction. Decisions and profile must be written out item by item in full; verbatim repetition of the previous brief is acceptable.
-3. **Lossy budget**: hard cap on total length (currently 800 characters), with discard priority: `progress detail < open questions < user profile < decisions & constraints`. **Decisions are the most sacred section** — they are the protocol's immune system (they stop later batons from re-proposing rejected options).
+3. **Lossy budget**: hard cap on total length (currently 800 characters), with discard priority: `progress detail < open questions < user profile < decisions & constraints`. **Decisions are the most sacred section** — they are the protocol's immune system (they stop later batons from re-proposing rejected options). **Constraints carry the same mechanical protection**: §4's append-only diff covers three sections — Decisions, Constraints and User profile.
 4. **Persist first, pointers are disposable**: disposability is determined by "is it persisted to the substrate" — **not by on-the-spot judgment**. Anything already persisted appears in the brief as a one-line pointer and may be dropped at any time (the substrate can restore it; losing it costs nothing). Anything not persisted is the only copy and must stay in the brief. This implies an obligation on every WRITE: **new decisions/constraints that matter must be persisted first, then compressed.**
 
 Invariant 4 is the bridge from prose briefs to pointer briefs (ROADMAP v0.3): it turns "what may I drop when compressing" from an on-the-spot model judgment (a source of variance) into a mechanically executable rule — persisted, feel free to drop; not persisted, never drop.
@@ -117,10 +118,10 @@ Invariant 4 is the bridge from prose briefs to pointer briefs (ROADMAP v0.3): it
 
 A brief chain can be exported whole (`{format:'theseus-brief-chain', v:1, exportedAt, batons:[{agentId,ts,handoff,handoffReason}], finalBrief}`) and imported as a new session's initial brief. Four rules:
 
-1. **Only two sections travel**: in the new session's initial brief, only Decisions and User profile come from the previous session; Progress / Open questions / Side effects are filled in per the brief rules, not carried over.
+1. **Only two sections travel**: in the new session's initial brief, only Decisions and User profile come from the previous session; Progress / Constraints / Open questions / Side effects are filled in per the brief rules, not carried over.
 2. **Not one log line travels**: the previous session's log never enters the new session (§5's semantics hold across sessions too). Import clears the target session's log / batons / artifacts by construction, and agentCount restarts at zero.
 3. **The imported brief *is* "the previous brief"**: it must pass §4's mechanical validation, and its budget must leave room — if the imported part filled all 800 characters, the first baton would either drop items or overshoot, and both roads end in rejection.
-4. **The first baton after import gets a hard rule**: the imported brief carries the `【跨会话导入】` marker, and the substrate uses it to add "not one decision or profile item may go missing" to the prompt — compressing items would collide with invariant 4 (decisions append-only).
+4. **The first baton after import gets a hard rule**: the imported brief carries the `【跨会话导入】` marker, and the substrate uses it to add "not one decision, constraint or profile item may go missing" to the prompt — compressing items would collide with invariant 4 (decisions and constraints append-only).
 
 `format` / `v` are placeholders for v0.5's schema versioning: the import side only accepts versions it knows, and rejects the rest.
 
@@ -130,10 +131,10 @@ Prompt constraints are the first line of defense, not the only one. The substrat
 
 | Check | How it's decided |
 |-------|------------------|
-| Five sections present | Heading structure match (Progress / Decisions / User profile / Open questions / Side effects) |
+| Six sections present | Heading structure match (Progress / Decisions / Constraints / User profile / Open questions / Side effects) |
 | No placeholders | Meta-comment regex ("same as above", "omitted", "previous conclusions retained", etc.) |
 | Within budget | Total length ≤ current cap |
-| Decisions append-only | Diff against the previous brief: item counts in Decisions and User profile must not decrease |
+| Decisions & constraints append-only | Diff against the previous brief: item counts in Decisions, Constraints and User profile must not decrease |
 | Pointers valid | Persistence pointers produced under Invariant 4 must reference substrate paths that actually exist |
 
 **Implemented (v0.1.1)**: `src/validate.js` turns the five checks above into the pure function `validateHandoff(brief, { prevHandoff, exists })` — no IO except the pointer check — returning `{ ok, errors[], checks }`. Two definitions are fixed here: length = non-whitespace character count ≤ 800; pointer syntax = `-> relative/path` (currently a conditional check: no pointer in the brief means pass; it becomes active once v0.3 persistence rules land).
@@ -201,3 +202,5 @@ A further implication: once the brief schema is versioned, **batons can relay ac
 - 2–3 LLM calls per baton (answer + salvage fallback) — more expensive than a single continuous-agent conversation. What you buy is bounded context and auditability (since v0.1.2 this is no longer a confession: the panel shows the simulated monolithic spend live — short sessions really are more expensive). The two rate biases are fixed (2026-09-21): all fixed content now precedes the brief, and endpoint-reported cache hits are billed at the cache rate.
 - The "2 lookups per baton" quota was once misread by a model as requiring user approval — tool semantics must be nailed down in the prompt
 - Concurrent batons cannot perceive each other: their write targets must be statically disjoint (§2.1), but races of the "the world I read has expired" kind (another baton concurrently modified the same region) still have no protocol-level answer — left to H1 for empirical work
+- **Whether constraints should travel across sessions is undecided**: import carries only Decisions + User profile, and the new session's Constraints section is a factual statement. Carrying constraints over is the obvious next step, but it raises import-budget pressure (the 600-character import cap), and "the previous session's context is gone — does the old constraint still hold" is a semantic question, not an engineering one
+- **A second transmission medium is an architectural question mark**: making constraints wholly immune to compression means the substrate maintaining a constraint registry *outside* the brief — which would also take over recognising *which sentence is a constraint* (the Constraints section's append-only rule covers "must not lose an item", not "recognise it"). That directly conflicts with §1 ("the Brief is the only transmission medium between batons"), so it is not a feature to slip in, but a question to answer first

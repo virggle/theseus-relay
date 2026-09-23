@@ -16,12 +16,12 @@ Both paths — conversation and tools — are wired up; `npm start` runs it:
 - **One message = one chain**: your message drives a whole chain of batons (tool returns drive new batons) until an answer is given or the task-level budget is hit. Caps: 24 batons / $0.5 per task; hitting the cap exits by wrapping up and emits a report, never throwing.
 - **Tools**: `search_files` / `read_file` / `write_file`, scoped to the session workspace `data/workspace/<sid>/`. Path guarding lives in scripts — escaping paths are refused outright; every write books its own `write_target`.
 - **Context stays bounded**: each baton's input = one brief + one driving input. Tool output over 1000 characters persists in full to `data/artifacts/<sid>/` and the baton sees only a summary plus a `->` pointer — so "bounded context" does not break on tool batons.
-- **Brief, five sections**: Progress / Decisions / User profile / Open questions / Side effects. Cumulative compression (not a this-turn recap), decisions append-only, placeholders banned, lossy budget of 800 characters (discard priority: progress detail < open questions < profile < decisions).
+- **Brief, six sections**: Progress / Decisions / Constraints / User profile / Open questions / Side effects. Cumulative compression (not a this-turn recap), decisions and constraints append-only, placeholders banned, lossy budget of 800 characters (discard priority: progress detail < open questions < profile < decisions & constraints).
 - **Mechanical validation**: five pure-function checks; failure means reject and re-dispatch once, and a second failure falls back to a summary and marks `rejected` — the validator is the commit condition of baton-level transactions.
 - **Log lookup**: the full log is visible only to the user; agents don't read it by default and may retrieve on demand when truly necessary (max 2 lookups per baton).
 - **Auditable handoffs**: the backstage panel shows, baton by baton, the brief, the exact input it read, the calls it emitted with their return classification (ack / info), the handoff reason (`reply` / `info-return` / `ack-aggregate` / `budget`), degradation and salvage markers, and a cost double-ledger (actual relay spend vs. a simulated monolith on the same conversation).
 
-`npm test` — 94 checks green (node:test, zero dependencies).
+`npm test` — 98 checks green (node:test, zero dependencies).
 
 ## The two forms it grows into
 

@@ -4,7 +4,7 @@
 // 三条口径写死在这里，不靠提示词：
 // 1. **导出逐字段白名单**：只搬 { agentId, ts, handoff, handoffReason } + 终局简报 + 显式头部。
 //    没有 key、没有 baseUrl、没有工具调用参数、没有遥测——白名单而非黑名单，新字段默认不外泄。
-// 2. **导入只搬两节**：决策 + 用户画像。进展 / 开放问题 / 副作用不跨会话搬运；
+// 2. **导入只搬两节**：决策 + 用户画像。进展 / 约束 / 开放问题 / 副作用不跨会话搬运；
 //    上一会话的 log 一行都不进新会话（PROTOCOL §5：log 是档案库，永不自动进入任何棒的上下文）。
 // 3. **导入的简报就是「上一份简报」**：它必须能过 validateHandoff，且预算要留出余地——
 //    导入部分占满 800 字的话，第一棒要么丢条目（判成「条目变少」被拒收），要么自己超标（同样被拒收）。
@@ -19,7 +19,7 @@ export const IMPORT_MARK = '【跨会话导入】';
 
 // 给导入后第一棒的硬规则。只在「上一份简报带导入标记」时出现，且落在简报之前——
 // 它在同一会话内是常量，因此不会缩短可缓存前缀（R4）。
-export const IMPORT_RULE = `【跨会话导入】这份简报是上一会话导入的：其中「决策」与「用户画像」两节的条目**一条都不许少**——基底校验会拿这份导入简报做「只增不删」diff，少一条即拒收重派。\n\n`;
+export const IMPORT_RULE = `【跨会话导入】这份简报是上一会话导入的：其中「决策」「约束」与「用户画像」三节的条目**一条都不许少**——基底校验会拿这份导入简报做「只增不删」diff，少一条即拒收重派。\n\n`;
 
 // 唯一跨会话搬运的两节
 export const IMPORT_SECTIONS = ['决策', '用户画像'];
@@ -29,6 +29,8 @@ export const IMPORT_SECTIONS = ['决策', '用户画像'];
 export const IMPORT_BRIEF_BUDGET = 600;
 
 const PROGRESS = '本会话尚未产生新的进展。';
+// 一句事实陈述，不是占位符：它如实说明旧约束按协议不跨会话搬运（`；` 会把它拆成两条，故用句号）
+const CONSTRAINTS = '本会话尚未记录新的约束（上一会话的约束按协议不跨会话搬运）。用户下达约束后从这里开始逐条记。';
 const OPEN_Q = '新会话尚未提出开放问题；上一会话的开放问题按协议不跨会话搬运。';
 const SIDE = '无';
 
@@ -96,7 +98,7 @@ export function readBriefChain(input) {
 }
 
 /**
- * 由简报链构造新会话的初始简报：决策 + 画像逐条搬运，其余三节按规矩补齐（事实陈述，不是占位符）。
+ * 由简报链构造新会话的初始简报：决策 + 画像逐条搬运，其余四节按规矩补齐（事实陈述，不是占位符）。
  * 超出 IMPORT_BRIEF_BUDGET 时按丢弃优先级自尾部裁（画像先于决策），并如实标注裁了几条。
  * @returns {{ handoff:string, chars:number, dropped:{决策:number,用户画像:number} }}
  */
@@ -114,9 +116,10 @@ export function buildImportedBrief(chain, opts = {}) {
     const block = (title, arr) =>
       `## ${title}\n${[arr.join('\n'), clip(title)].filter(Boolean).join('\n')}`;
     return [
-      `${IMPORT_MARK}本会话由上一会话的简报链导入：只搬运「决策」与「用户画像」两节，进展 / 开放问题 / 副作用按协议不跨会话搬运；上一会话的 log 一行都没有带过来。以下两节取自上一会话终局简报（导出于 ${chain.exportedAt || '未记录'}）。`,
+      `${IMPORT_MARK}本会话由上一会话的简报链导入：只搬运「决策」与「用户画像」两节，进展 / 约束 / 开放问题 / 副作用按协议不跨会话搬运；上一会话的 log 一行都没有带过来。以下两节取自上一会话终局简报（导出于 ${chain.exportedAt || '未记录'}）。`,
       `## 进展\n${PROGRESS}`,
       block('决策', decisions),
+      `## 约束\n${CONSTRAINTS}`,
       block('用户画像', profile),
       `## 开放问题\n${OPEN_Q}`,
       `## 副作用\n${SIDE}`,

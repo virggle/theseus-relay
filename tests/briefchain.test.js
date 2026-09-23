@@ -24,6 +24,8 @@ local-first 笔记应用立项，目标平台已确认。
 ## 决策
 1. 存储用 SQLite，不引云端依赖
 2. 不做 markdown 预览，专注纯文本编辑
+## 约束
+回复一律用中文
 ## 用户画像
 1. 中文沟通，偏好先给结论
 2. 手里已有 Vue 项目经验
@@ -38,6 +40,8 @@ const BRIEF_2 = `## 进展
 1. 存储用 SQLite，不引云端依赖
 2. 不做 markdown 预览，专注纯文本编辑
 3. 同步方案选 WebDAV，因为自建服务器成本最低
+## 约束
+回复一律用中文
 ## 用户画像
 1. 中文沟通，偏好先给结论
 2. 手里已有 Vue 项目经验
@@ -53,6 +57,9 @@ const BRIEF_3 = `## 进展
 2. 不做 markdown 预览，专注纯文本编辑
 3. 同步方案选 WebDAV，因为自建服务器成本最低
 4. 冲突合并用时间戳优先，因为它最简单且可预期
+## 约束
+1. 回复一律用中文
+2. 不碰仓库外的文件
 ## 用户画像
 1. 中文沟通，偏好先给结论
 2. 手里已有 Vue 项目经验
@@ -129,7 +136,7 @@ test('v0.1.3 ②：导出 → 导入，新简报逐字包含旧简报「决策�
   assert.ok(built.handoff.startsWith(IMPORT_MARK));
 });
 
-test('v0.1.3 ③：导入的初始简报过基底校验，五节齐全；其余三节按规矩补齐而不是搬旧内容', () => {
+test('v0.1.3 ③：导入的初始简报过基底校验，六节齐全；其余四节按规矩补齐而不是搬旧内容', () => {
   const { built } = roundTrip();
   const v = validateHandoff(built.handoff);
   assert.deepEqual(v.errors, [], '导入简报必须能过 §4 机械校验（它是下一棒的 prevHandoff）');
@@ -137,13 +144,28 @@ test('v0.1.3 ③：导入的初始简报过基底校验，五节齐全；其余�
   assert.ok(built.chars <= IMPORT_BRIEF_BUDGET, `导入简报 ${built.chars} 字，超了 ${IMPORT_BRIEF_BUDGET}`);
 
   const now = parseSections(built.handoff);
-  for (const title of ['进展', '决策', '用户画像', '开放问题', '副作用']) {
+  for (const title of ['进展', '决策', '约束', '用户画像', '开放问题', '副作用']) {
     assert.ok(now[title].length > 0, `${title} 不许留空（占位符是协议级违规）`);
   }
-  // 跨会话只搬两节：旧进展 / 旧开放问题 / 旧副作用一律不许跟着过来
+  // 跨会话只搬两节：旧进展 / 旧约束 / 旧开放问题 / 旧副作用一律不许跟着过来
   assert.ok(!built.handoff.includes('本轮已进入收尾阶段'), '旧「进展」不许跨会话搬运');
+  assert.ok(!built.handoff.includes('不碰仓库外的文件'), '旧「约束」不许跨会话搬运');
   assert.ok(!built.handoff.includes('把 CLI 包一层'), '旧「开放问题」不许跨会话搬运');
   assert.ok(!built.handoff.includes('data/notes.sqlite'), '旧「副作用」不许跨会话搬运');
+});
+
+test('v0.1.3 ③b：导入简报的「约束」节是事实陈述、恰好一条——第一棒把它写空会被拒收', () => {
+  const { built } = roundTrip();
+  const now = parseSections(built.handoff);
+  assert.equal(countItems(now['约束']), 1, '导入简报的约束账本只有一条事实陈述，旧约束不搬运');
+
+  // 第一棒把「约束」节写空 → 与决策同等待遇：撞上 CONSTRAINTS_SHRUNK
+  const emptied = built.handoff.replace(/## 约束\n[^\n]*\n/, '## 约束\n');
+  const bad = validateHandoff(emptied, { prevHandoff: built.handoff });
+  assert.equal(bad.ok, false, '约束账本由 1 条减到 0 条必须被拒收');
+  assert.ok(bad.errors.some((e) => e.code === 'CONSTRAINTS_SHRUNK'), JSON.stringify(bad.errors));
+  // 原样保留那条事实陈述 → 通过（提示词里那条硬规则要模型做的事）
+  assert.ok(validateHandoff(built.handoff, { prevHandoff: built.handoff }).ok);
 });
 
 test('v0.1.3 ④：导入不搬 log —— 目标会话 log / batons / artifacts 清空、agentCount 归零', () => {

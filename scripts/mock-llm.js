@@ -15,20 +15,21 @@ let turnCount = 0;
 
 const REJECT_MARK = '[系统·简报校验未通过]';
 
-const GOOD_BRIEF = '## 进展\nmock 交接，链路正常\n## 决策\n1. 先验证再落盘\n2. 决策只增不删\n## 用户画像\n测试用户，偏好简短\n## 开放问题\n无\n## 副作用\n无';
+// 六节缺一不可（2026-09-23 起「约束」是第六节）
+const GOOD_BRIEF = '## 进展\nmock 交接，链路正常\n## 决策\n1. 先验证再落盘\n2. 决策只增不删\n## 约束\n1. 不改动工作区外的文件\n## 用户画像\n测试用户，偏好简短\n## 开放问题\n无\n## 副作用\n无';
 
 function badBrief(mode) {
   switch (mode) {
     case 'placeholder':
-      return '## 进展\nmock 交接\n## 决策\n（保留全部旧结论）\n## 用户画像\n测试用户\n## 开放问题\n无\n## 副作用\n无';
+      return '## 进展\nmock 交接\n## 决策\n（保留全部旧结论）\n## 约束\n1. 不改动工作区外的文件\n## 用户画像\n测试用户\n## 开放问题\n无\n## 副作用\n无';
     case 'missing':
-      return '## 进展\nmock 交接，故意缺节\n## 用户画像\n测试用户\n## 开放问题\n无\n## 副作用\n无';
+      return '## 进展\nmock 交接，故意缺「约束」节\n## 决策\n1. 无\n## 用户画像\n测试用户\n## 开放问题\n无\n## 副作用\n无';
     case 'budget':
-      return '## 进展\n' + '这是一段很长的填充内容用于突破八百字预算上限'.repeat(40) + '\n## 决策\n1. 无\n## 用户画像\n测试用户\n## 开放问题\n无\n## 副作用\n无';
+      return '## 进展\n' + '这是一段很长的填充内容用于突破八百字预算上限'.repeat(40) + '\n## 决策\n1. 无\n## 约束\n1. 无\n## 用户画像\n测试用户\n## 开放问题\n无\n## 副作用\n无';
     case 'shrink':
-      return '## 进展\nmock 交接\n## 决策\n## 用户画像\n测试用户\n## 开放问题\n无\n## 副作用\n无';
+      return '## 进展\nmock 交接\n## 决策\n## 约束\n## 用户画像\n测试用户\n## 开放问题\n无\n## 副作用\n无';
     case 'pointer':
-      return '## 进展\nmock 交接\n## 决策\n1. 无\n## 用户画像\n测试用户\n## 开放问题\n见 -> docs/NOPE-404.md\n## 副作用\n无';
+      return '## 进展\nmock 交接\n## 决策\n1. 无\n## 约束\n1. 无\n## 用户画像\n测试用户\n## 开放问题\n见 -> docs/NOPE-404.md\n## 副作用\n无';
     default:
       return GOOD_BRIEF;
   }
@@ -101,20 +102,21 @@ const server = http.createServer((req, res) => {
         answers: ['先验证再落盘', '好像是有这么一条', '测试用户', '不知道', '不知道'],
       });
     } else if (sys.includes('【跨会话导入】')) {
-      // v0.1.3 跨会话导入联调：把导入简报里的「决策」「用户画像」原样回显——
+      // v0.1.3 跨会话导入联调：把导入简报里的「决策」「约束」「用户画像」原样回显——
       // 证明上一会话的决策真的通过简报到达了模型，而不是停在导出文件里。
-      // 回写的 handoff 条目数与导入简报一致，否则会撞上「决策只增不删」的拒收重派。
+      // 回写的 handoff 条目数与导入简报一致，否则会撞上「决策与约束只增不删」的拒收重派。
       const lastSection = (title) => {
         const seg = sys.split('## ' + title).pop() || '';
         return seg.split(/\n##\s/)[0].trim();
       };
       const decisions = lastSection('决策');
+      const constraints = lastSection('约束');
       const profile = lastSection('用户画像');
       content = JSON.stringify({
         reply: `（mock 跨会话回显）我读到的上一会话决策是：\n${decisions}`,
         handoff:
           `## 进展\nmock 跨会话导入联调：本棒读到导入简报，决策与画像条目原样保留。\n` +
-          `## 决策\n${decisions}\n## 用户画像\n${profile}\n## 开放问题\n无\n## 副作用\n无`,
+          `## 决策\n${decisions}\n## 约束\n${constraints}\n## 用户画像\n${profile}\n## 开放问题\n无\n## 副作用\n无`,
       });
     } else if (last.startsWith('[系统·翻日志结果]')) {
       content = JSON.stringify({

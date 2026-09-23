@@ -1,19 +1,23 @@
 // 基底校验器 v0.1.1 → H0 —— 把 PROTOCOL §4 的机械校验从提示词落到脚本。
 // 原则：能写进基底的规则不留在提示词里。模型会作弊（「（保留全部旧结论）」就是实录），脚本不会。
 //
-// 六项校验（纯函数，除指针项外无 IO）：
-//   1. 五节齐全        标题结构匹配（进展 / 决策 / 用户画像 / 开放问题 / 副作用）
+// 五项校验（纯函数，除指针项外无 IO）：
+//   1. 六节齐全        标题结构匹配（进展 / 决策 / 约束 / 用户画像 / 开放问题 / 副作用）
 //   2. 无占位符        元注释正则
 //   3. 预算内          去空白字符数 ≤ 800
-//   4. 决策只增不删    与上一份简报 diff：决策、用户画像条目数不得减少（一行里用分号并列的条目各算一条，R5）
+//   4. 决策与约束只增不删  与上一份简报 diff：决策、约束、用户画像条目数不得减少（一行里用分号并列的条目各算一条，R5）
 //   5. 指针有效        不变量 4 的落盘指针，指向的基底路径必须真实存在（无指针则通过）
 //   （副作用节无单调性要求：本棒写了 3 个文件、下一棒可以一个不写，只要求节存在）
+//
+// 「约束」节（2026-09-23，非 ROADMAP §2 阶梯上的编号版本）：用户下达的、约束本会话行为的通用指令此前只出现在
+// PROTOCOL §3 不变量 3 的丢弃优先级里（写作「决策与约束」），却没有自己的节，也没有任何机械保护。
+// 于是它只能靠模型临场判断要不要记下来——而消掉临场判断正是本协议一以贯之的方向（见不变量 4）。
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const SECTION_TITLES = ['进展', '决策', '用户画像', '开放问题', '副作用'];
+export const SECTION_TITLES = ['进展', '决策', '约束', '用户画像', '开放问题', '副作用'];
 export const BRIEF_BUDGET = 800;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -86,6 +90,13 @@ function defaultExists(p) {
   return fs.existsSync(abs);
 }
 
+// 只增不删的三节。用户画像一并受保护（它同样只增不删），但提示语各自贴合语义。
+const MONOTONIC_SECTIONS = [
+  ['决策', 'decisions', 'DECISIONS_SHRUNK', '决策账本只增不删'],
+  ['约束', 'constraints', 'CONSTRAINTS_SHRUNK', '约束账本只增不删'],
+  ['用户画像', 'profile', 'PROFILE_SHRUNK', '用户画像只增不删'],
+];
+
 /**
  * 校验一份简报。
  * @param {string} handoff 待校验简报
@@ -98,7 +109,7 @@ export function validateHandoff(handoff, opts = {}) {
   const text = String(handoff || '');
   const sections = parseSections(text);
 
-  // 1. 四节齐全
+  // 1. 六节齐全
   const missing = SECTION_TITLES.filter((t) => !text.match(HEADING_RE[SECTION_TITLES.indexOf(t)]));
   if (missing.length) {
     errors.push({ code: 'SECTIONS_MISSING', msg: `缺少节标题：${missing.map((t) => '## ' + t).join('、')}` });
@@ -119,19 +130,17 @@ export function validateHandoff(handoff, opts = {}) {
     errors.push({ code: 'BUDGET', msg: `简报 ${chars} 字，超出上限 ${budget} 字` });
   }
 
-  // 4. 决策只增不删（无上一份简报则跳过）
+  // 4. 决策与约束只增不删（无上一份简报则跳过）
   const prevSections = prevHandoff ? parseSections(prevHandoff) : null;
-  const monotonic = { decisions: { prev: null, cur: null }, profile: { prev: null, cur: null } };
+  // 三节的键恒定存在（未跑 diff 时 prev / cur 为 null），面板与测试据此判断「这条校验跑没跑」
+  const monotonic = Object.fromEntries(MONOTONIC_SECTIONS.map(([, label]) => [label, { prev: null, cur: null }]));
   if (prevSections) {
-    for (const [key, label, code] of [
-      ['决策', 'decisions', 'DECISIONS_SHRUNK'],
-      ['用户画像', 'profile', 'PROFILE_SHRUNK'],
-    ]) {
+    for (const [key, label, code, hint] of MONOTONIC_SECTIONS) {
       const p = countItems(prevSections[key]);
       const c = countItems(sections[key]);
       monotonic[label] = { prev: p, cur: c };
       if (c < p) {
-        errors.push({ code, msg: `「${key}」条目由 ${p} 条减到 ${c} 条——决策账本只增不删` });
+        errors.push({ code, msg: `「${key}」条目由 ${p} 条减到 ${c} 条——${hint}` });
       }
     }
   }
