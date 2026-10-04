@@ -256,6 +256,14 @@ export function unwrapFallbackBrief(content) {
   return raw;
 }
 
+// 兜底摘要的输出上限。取大值是余量而非用量：max_tokens 只是上限，按实际输出计费。
+// 为什么不能是 600：推理模型把思考 token 一并计入这个配额。实测 deepseek-flash 写同一份
+// 800 字简报——配额 600 时 finish_reason=length，思考吃掉绝大部分，可见正文只剩 81 字符、
+// 只有 2 个节标题；配额 4000 时同一次请求只用了 663 token 就完整输出六节（思考约 500–900）。
+// 于是兜底产物六节全缺 + 三节条目归零，被校验器拒收后简报沿用上一棒——本该止损的一步反而
+// 把这一棒的信息整段丢掉。见 tests/fallback.test.js 的守门断言。
+export const FALLBACK_MAX_TOKENS = 4000;
+
 // JSON 解析失败的兜底：单独一次调用生成交接文档
 export async function fallbackHandoff(cfg, userMsg, reply, prevHandoff, calls) {
   const messages = [
@@ -268,7 +276,7 @@ export async function fallbackHandoff(cfg, userMsg, reply, prevHandoff, calls) {
       content: `【上一棒交接（已含此前所有轮次的压缩信息）】\n${prevHandoff || '（无，本轮是第一棒）'}\n\n【本轮用户消息】\n${userMsg}\n\n【本轮助手回复】\n${reply}\n\n请写出留给下一棒的交接文档：覆盖上一棒交接中的重要内容 + 本轮新增。`,
     },
   ];
-  const { content, call } = await callLLM(cfg, messages, 'fallback', { temperature: 0.3, maxTokens: 600 });
+  const { content, call } = await callLLM(cfg, messages, 'fallback', { temperature: 0.3, maxTokens: FALLBACK_MAX_TOKENS });
   calls.push(call);
   return unwrapFallbackBrief(content);
 }

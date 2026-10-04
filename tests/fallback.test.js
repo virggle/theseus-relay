@@ -3,8 +3,17 @@
 // 否则只是把一坨 JSON 换成另一坨下一棒照样读不懂的东西。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { unwrapFallbackBrief } from '../src/relay.js';
-import { validateHandoff } from '../src/validate.js';
+import { unwrapFallbackBrief, FALLBACK_MAX_TOKENS } from '../src/relay.js';
+import { validateHandoff, BRIEF_BUDGET } from '../src/validate.js';
+
+test('守门：兜底配额装得下一份完整简报（推理模型的思考 token 计入配额）', () => {
+  // 实测 deepseek-flash：配额 600 时 finish_reason=length，思考吃掉绝大部分，可见正文只剩
+  // 81 字符、2 个节标题；配额 4000 时同一次请求用 663 token 就完整输出六节。四倍余量容的是思考波动。
+  assert.ok(
+    FALLBACK_MAX_TOKENS >= BRIEF_BUDGET * 4,
+    `兜底配额 ${FALLBACK_MAX_TOKENS} 装不下一份 ${BRIEF_BUDGET} 字简报加思考开销`
+  );
+});
 
 const GOOD = '## 进展\nmock 交接\n## 决策\n1. 先验证再落盘\n## 约束\n1. 不改动工作区外的文件\n## 用户画像\n测试用户\n## 开放问题\n无\n## 副作用\n无';
 
