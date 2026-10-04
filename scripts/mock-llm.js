@@ -10,8 +10,9 @@
 //   第 2 棒再发 calls（read_file，信息型）→ 收到信息返回
 //   第 3 棒给出 reply，链终止 —— 面板上可看到全部四类交接原因中的三类。
 //
-// 兜底摘要联调（issue #1）：MOCK_FALLBACK_JSON=1 让兜底那次调用回 JSON 信封，
-// 配合 MOCK_BAD_BRIEF + MOCK_ALWAYS_BAD 可看到「信封被解开 → 校验通过」，而不是整段 JSON 被当成简报。
+// 兜底摘要联调（issue #1）：MOCK_FALLBACK_JSON=1 让兜底那次调用回 JSON 信封（内容为好简报），
+// 配合 MOCK_BAD_BRIEF + MOCK_ALWAYS_BAD 可看到「信封被解开 → 校验通过」；MOCK_FALLBACK_JSON=bad
+// 则信封里装坏简报，用于观察「格式救回来了、内容照样不合格」这一档。
 import http from 'node:http';
 
 let turnCount = 0;
@@ -60,10 +61,18 @@ const server = http.createServer((req, res) => {
     let content;
     if (sys.includes('你在为下一任助手更新《工作简报》')) {
       // 兜底摘要这一路。prompt 写的是「只输出文档本身」，但真实模型对 JSON 信封的先验极强，
-      // 常常仍回 {"reply":…,"handoff":…}（issue #1）。MOCK_FALLBACK_JSON=1 复现这个先验，
-      // 用来验证 unwrapFallbackBrief 能不能把信封里的简报救回来。
-      const brief = briefOf();
-      content = process.env.MOCK_FALLBACK_JSON
+      // 常常仍回 {"reply":…,"handoff":…}（issue #1）。MOCK_FALLBACK_JSON=1 复现这个先验。
+      //
+      // 内容与形状必须解耦，否则这个开关什么也证明不了：兜底是**一次独立的模型调用**，
+      // 它的输出质量不该由触发它的坏简报决定。若这里仍取 briefOf()，信封解开后装的还是
+      // 那份坏简报，结果与不开开关逐字节相同——开关不可观测。
+      //
+      // 只有开着 MOCK_FALLBACK_JSON 时才换成好简报，让「解开 → 六节齐全 → 校验通过」可被看到；
+      // 不开开关时仍取 briefOf()，保持既有联调命令的行为逐字不变。
+      // =bad 保留坏简报，用于观察「信封解开了、内容照样不合格」这一档（信封只救格式，不救内容）。
+      const fbJson = process.env.MOCK_FALLBACK_JSON;
+      const brief = fbJson && fbJson !== 'bad' ? GOOD_BRIEF : briefOf();
+      content = fbJson
         ? JSON.stringify({ reply: '（mock 兜底）本棒原始输出不可解析，这里是补写的简报。', handoff: brief })
         : brief;
     } else if (rejected) {

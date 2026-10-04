@@ -57,11 +57,16 @@
 ```bash
 MOCK_BAD_BRIEF=placeholder npm run mock                            # 坏简报 → 拒收 → 重派修正，应 rejected:false
 MOCK_BAD_BRIEF=placeholder MOCK_ALWAYS_BAD=1 npm run mock          # 重派仍坏 → 兜底摘要，应 rejected:true + degraded:true
-MOCK_BAD_BRIEF=placeholder MOCK_ALWAYS_BAD=1 MOCK_FALLBACK_JSON=1 npm run mock   # 同上，但兜底那次回 JSON 信封 → 简报应仍是六节齐全的裸文档
+MOCK_BAD_BRIEF=placeholder MOCK_ALWAYS_BAD=1 MOCK_FALLBACK_JSON=1 npm run mock     # 同上，但兜底那次回 JSON 信封（内容为好简报）→ 应六节齐全且校验通过
+MOCK_BAD_BRIEF=placeholder MOCK_ALWAYS_BAD=1 MOCK_FALLBACK_JSON=bad npm run mock   # 信封里装坏简报 → 格式救回来了，内容照样被拒（PLACEHOLDER）
 LLM_BASE_URL=http://localhost:5051 LLM_API_KEY=mock LLM_MODEL=mock npm start
 ```
 
-`MOCK_BAD_BRIEF` 取值 `placeholder | missing | budget | shrink | pointer`，分别对应五项校验的一类坏简报（无占位符 / 六节齐全 / 预算内 / 决策与约束只增不删 / 指针有效）。`MOCK_FALLBACK_JSON=1` 让兜底那次调用回 `{"reply":…,"handoff":…}` 信封（真实模型的常见先验，尽管提示词写的是「只输出文档本身」），用来验证基底的信封解包——未解包时下一棒拿到的是一坨 JSON，`validateHandoff` 报 `SECTIONS_MISSING` 六节全缺。开「后台实况」面板看校验错误 chip。
+`MOCK_BAD_BRIEF` 取值 `placeholder | missing | budget | shrink | pointer`，分别对应五项校验的一类坏简报（无占位符 / 六节齐全 / 预算内 / 决策与约束只增不删 / 指针有效）。`MOCK_FALLBACK_JSON` 让兜底那次调用回 `{"reply":…,"handoff":…}` 信封（真实模型的常见先验，尽管提示词写的是「只输出文档本身」），用来验证基底的信封解包——未解包时下一棒拿到的是一坨 JSON，`validateHandoff` 报 `SECTIONS_MISSING` 六节全缺。
+
+两个取值对应两件必须分开看的事：**信封只救格式，不救内容**。`=1`（默认，好简报）看的是「解开 → 六节齐全 → 校验通过」；`=bad`（坏简报）看的是「格式救回来了，但里面那份简报本身不合格，照样被拒」。开「后台实况」面板看校验错误 chip。
+
+> 设计要点：兜底那次调用的**内容不跟 `MOCK_BAD_BRIEF` 走**。它是独立的一次模型调用，输出质量不该由触发它的坏简报决定；否则信封解开后装的还是同一份坏简报，开关前后结果逐字节相同——**一个证明不了任何事的开关，比没有更糟**。不设 `MOCK_FALLBACK_JSON` 时仍取 `MOCK_BAD_BRIEF` 的内容，既有联调命令的行为不变。
 
 ## D. 自动化：成本双账本（v0.1.2）
 
