@@ -240,6 +240,22 @@ export function extractJSON(raw) {
   }
 }
 
+// issue #1：兜底输出的归一化。纯函数，零 IO。
+// 兜底那一次的 prompt 写的是「只输出文档本身」，但模型对 JSON 信封的先验极强，
+// 常常仍回 {"reply":…,"handoff":…}。这里在返回前解一次信封——解出 handoff 就取它，
+// 解不出（原样文档 / 无 handoff 键 / JSON 非法）就原样返回，不猜、不改写。
+// 为什么必须在这一层解：兜底恰是「前一步已出错」时才走的路径，再丢一次格式就是连坏两次；
+// 而下游 validateHandoff 只认 ^## 开头的裸文档，包着信封的字符串一节都匹配不到。
+export function unwrapFallbackBrief(content) {
+  const raw = String(content || '').trim();
+  if (!raw) return '';
+  const parsed = extractJSON(raw);
+  if (parsed && typeof parsed.handoff === 'string' && parsed.handoff.trim()) {
+    return parsed.handoff.trim();
+  }
+  return raw;
+}
+
 // JSON 解析失败的兜底：单独一次调用生成交接文档
 export async function fallbackHandoff(cfg, userMsg, reply, prevHandoff, calls) {
   const messages = [
@@ -254,7 +270,7 @@ export async function fallbackHandoff(cfg, userMsg, reply, prevHandoff, calls) {
   ];
   const { content, call } = await callLLM(cfg, messages, 'fallback', { temperature: 0.3, maxTokens: 600 });
   calls.push(call);
-  return content.trim();
+  return unwrapFallbackBrief(content);
 }
 
 // 从损坏/截断的 JSON 中抢救 reply 字段

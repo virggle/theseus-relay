@@ -9,6 +9,9 @@
 //   第 1 棒发 calls（write_file + search_files）→ 收到确认聚合 + 信息返回
 //   第 2 棒再发 calls（read_file，信息型）→ 收到信息返回
 //   第 3 棒给出 reply，链终止 —— 面板上可看到全部四类交接原因中的三类。
+//
+// 兜底摘要联调（issue #1）：MOCK_FALLBACK_JSON=1 让兜底那次调用回 JSON 信封，
+// 配合 MOCK_BAD_BRIEF + MOCK_ALWAYS_BAD 可看到「信封被解开 → 校验通过」，而不是整段 JSON 被当成简报。
 import http from 'node:http';
 
 let turnCount = 0;
@@ -55,7 +58,15 @@ const server = http.createServer((req, res) => {
     const hasInfoReturn = last.includes('[系统·信息返回]');
 
     let content;
-    if (rejected) {
+    if (sys.includes('你在为下一任助手更新《工作简报》')) {
+      // 兜底摘要这一路。prompt 写的是「只输出文档本身」，但真实模型对 JSON 信封的先验极强，
+      // 常常仍回 {"reply":…,"handoff":…}（issue #1）。MOCK_FALLBACK_JSON=1 复现这个先验，
+      // 用来验证 unwrapFallbackBrief 能不能把信封里的简报救回来。
+      const brief = briefOf();
+      content = process.env.MOCK_FALLBACK_JSON
+        ? JSON.stringify({ reply: '（mock 兜底）本棒原始输出不可解析，这里是补写的简报。', handoff: brief })
+        : brief;
+    } else if (rejected) {
       // 被基底拒收后默认改交好简报；MOCK_ALWAYS_BAD=1 时继续交坏简报，用于验证「重派仍不过 → 兜底」分支
       content = JSON.stringify({
         reply: `（mock 重派后）已收到校验错误。`,

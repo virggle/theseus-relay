@@ -50,17 +50,18 @@
 
 ## C. 自动化：基底校验器（v0.1.1）
 
-能用脚本判的就不留给模型自觉。`npm test`（Node 内置 node:test，零依赖）当前 98 项全绿（validate 21 / cost 12 / tools 7 / returns 8 / task 13 / budget 5 / search 11 / briefchain 10 / retention 11）。本节对应的是 `tests/validate.test.js`：五项校验各配真实故障样本（占位符「（保留全部旧结论）」、缺节、超 800 字、决策条目变少、约束条目变少、死指针），外加「策略 / 忽略不算占位符」这类反例防误杀。
+能用脚本判的就不留给模型自觉。`npm test`（Node 内置 node:test，零依赖）当前 107 项全绿（validate 21 / cost 12 / tools 7 / returns 8 / task 13 / budget 5 / search 11 / briefchain 10 / retention 11 / fallback 9）。本节对应的是 `tests/validate.test.js`：五项校验各配真实故障样本（占位符「（保留全部旧结论）」、缺节、超 800 字、决策条目变少、约束条目变少、死指针），外加「策略 / 忽略不算占位符」这类反例防误杀。
 
 无 key 也能验证拒收链路，两条分支都要看到：
 
 ```bash
 MOCK_BAD_BRIEF=placeholder npm run mock                            # 坏简报 → 拒收 → 重派修正，应 rejected:false
 MOCK_BAD_BRIEF=placeholder MOCK_ALWAYS_BAD=1 npm run mock          # 重派仍坏 → 兜底摘要，应 rejected:true + degraded:true
+MOCK_BAD_BRIEF=placeholder MOCK_ALWAYS_BAD=1 MOCK_FALLBACK_JSON=1 npm run mock   # 同上，但兜底那次回 JSON 信封 → 简报应仍是六节齐全的裸文档
 LLM_BASE_URL=http://localhost:5051 LLM_API_KEY=mock LLM_MODEL=mock npm start
 ```
 
-`MOCK_BAD_BRIEF` 取值 `placeholder | missing | budget | shrink | pointer`，分别对应五项校验的一类坏简报（无占位符 / 六节齐全 / 预算内 / 决策与约束只增不删 / 指针有效）。开「后台实况」面板看校验错误 chip。
+`MOCK_BAD_BRIEF` 取值 `placeholder | missing | budget | shrink | pointer`，分别对应五项校验的一类坏简报（无占位符 / 六节齐全 / 预算内 / 决策与约束只增不删 / 指针有效）。`MOCK_FALLBACK_JSON=1` 让兜底那次调用回 `{"reply":…,"handoff":…}` 信封（真实模型的常见先验，尽管提示词写的是「只输出文档本身」），用来验证基底的信封解包——未解包时下一棒拿到的是一坨 JSON，`validateHandoff` 报 `SECTIONS_MISSING` 六节全缺。开「后台实况」面板看校验错误 chip。
 
 ## D. 自动化：成本双账本（v0.1.2）
 
